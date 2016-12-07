@@ -1,0 +1,9 @@
+modnames,ParNum,LL,AIC,AICc,DeltaAICc,EvRatio,weight,fixed,Gside,Rside
+m0,25,505.955,-961.91,-960.72,0,1,0.999,popmean + Year + popmean:Year + pol(X, -1) + pol(Y, -1),corgh(Year):at(pop, "Dic2 x Silur"):genotype + corgh(Year):at(pop, "Dic2 x Lloyd"):genotype + at(Year):X_Y,~at(Year):ar1(Y):ar1(X)
+m5,23,497.084,-948.168,-947.159,13.561,880.509,0.001,popmean + Year + popmean:Year + pol(X, -1) + pol(Y, -1),corgh(Year):at(pop, "Dic2 x Lloyd"):genotype + corgh(Year):at(pop, "Dic2 x Silur"):genotype + at(Year):X_Y,~at(Year):id(X):ar1(Y)
+m2,21,491.395,-940.79,-939.947,20.773,32419.002,0,popmean + Year + popmean:Year + pol(X, -1) + pol(Y, -1),at(pop, "Dic2 x Lloyd"):genotype + at(pop, "Dic2 x Silur"):genotype + at(Year):X_Y,~at(Year):ar1(Y):ar1(X)
+m3,24,482.299,-916.598,-915.5,45.22,6597786163.916,0,popmean + Year + popmean:Year + pol(X, -1) + pol(Y, -1),corgh(Year):at(pop, "Dic2 x Lloyd"):genotype + corgh(Year):at(pop, "Dic2 x Silur"):genotype + Obs,~at(Year):ar1(Y):ar1(X)
+m1,23,470.671,-895.342,-894.333,66.387,260467705961629,0,popmean + Year + popmean:Year + pol(X, -1) + pol(Y, -1),diag(Year):at(pop, "Dic2 x Lloyd"):genotype + diag(Year):at(pop, "Dic2 x Silur"):genotype + at(Year):X_Y,~at(Year):ar1(Y):ar1(X)
+m7,23,453.873,-861.746,-860.737,99.983,5.14082229953087e+21,0,popmean + Year + popmean:Year + pol(X, -1) + pol(Y, -1),corgh(Year):at(pop, "Dic2 x Lloyd"):genotype + corgh(Year):at(pop, "Dic2 x Silur"):genotype,~at(Year):ar1(Y):ar1(X)
+m6,19,434.776,-831.552,-830.86,129.86,1.58030425691327e+28,0,popmean + Year + popmean:Year + pol(X, -1) + pol(Y, -1),corgh(Year):at(pop, "Dic2 x Lloyd"):genotype + corgh(Year):at(pop, "Dic2 x Silur"):genotype,~at(Year):id(Y):id(X)
+m4,23,438.635,-831.27,-830.261,130.459,2.13212129263831e+28,0,popmean + Year + popmean:Year + pol(X, -1) + pol(Y, -1),corgh(Year):at(pop, "Dic2 x Lloyd"):genotype + corgh(Year):at(pop, "Dic2 x Silur"):genotype + at(Year):X_Y,~at(Year):id(Y):ar1(X)

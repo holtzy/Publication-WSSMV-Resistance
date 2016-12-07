@@ -1,0 +1,674 @@
+---
+title: "Epistatic determinism of durum wheat resistance to the Wheat Spindle Streak Mosaic Virus"
+author: "Yan Holtz, Michel Bonnefoy, Véronique Viader, Morgane Ardisson, Nicolas O. Rode, Gérard Poux, Pierre Roumet, Véronique Marie-Jeanne, Vincent Ranwez, Sylvain Santoni, David Gouache, Jacques L. David"
+date: "30th May 2016"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+  html_document:
+    toc: yes
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+  word_document: default
+---
+
+
+
+This file is a supplementary data attached with the publication. It aims to describe most of the analysis done in this study. The bioinformatics part is not included (reads preparation, mapping, SNP calling, imputation and genetic map building)
+
+
+
+#1/ Upload data
+Let's upload every files, packages and objects we will need in the rest of the script.
+
+Path:
+
+```{r}
+my_path="~/Dropbox/Publi_Mosaique/DATA/DATA"
+```
+
+Let's upload 6 files: 
+- all_pheno is a file with every phenotypes available (all pops and controls , all years, all phenotyping methods)
+- map is the genetic consensus map
+- Y_DS is the summary of phenotypes for Dic2 x Silur (DS), including BLUPs
+- Y_DL is the summary of phenotypes for Dic2 x Lloyd (DL), including BLUPs
+- DS is the QTL analysis summary for DS: it gives the LOD and other informations for each markers
+- DL is the QTL analysis summary for DL: it gives the LOD and other informations for each markers
+
+```{r}
+# Raw phenotypuc data, all pop & all years:
+all_pheno <- read.table(paste(my_path,"Data2012_2015.csv",sep="/") , header=T , sep="," , na.strings="NA")
+# Consensus genetic map:
+map  <- read.table(paste(my_path,"genetic_map.txt",sep="/") , header=T , sep="," , na.strings="NA")
+# blups & LOD scores for DS
+Y_DS <- read.table(paste(my_path,"DS/phenotypage.csv",sep="/") , header=T , sep=";" , na.strings="NA")
+DS   <- read.table(paste(my_path,"DS/bilan_simple_marker",sep="/") , header=T , sep="," , na.strings="NA")
+# blups & LOD scores for DL
+Y_DL <- read.table(paste(my_path,"DL/phenotypage.csv",sep="/") , header=T , sep=";" , na.strings="NA")
+DL   <- read.table(paste(my_path,"DL/bilan_simple_marker",sep="/") , header=T , sep="," , na.strings="NA")
+# blups & LOD scores for both pops groupes together
+Y_BOTH <- read.table(paste(my_path,"GROUPED/phenotypage.csv",sep="/") , header=T , sep=";" , na.strings="NA")
+BOTH   <- read.table(paste(my_path,"GROUPED/bilan_simple_marker",sep="/") , header=T , sep="," , na.strings="NA")
+```
+
+Charge some libraries:
+```{r}
+library(RColorBrewer)
+library(xtable)
+```
+
+
+
+
+
+
+#2/ Basic statistics concerning the experiments
+
+## Counts of plants
+How many plants were present in 2012 for each pop and parents:
+```{r}
+#For 2012:
+table(all_pheno$pop[all_pheno$Year=="2012"])
+```
+
+How many plants were present in 2015 for each pop and parents:
+```{r}
+#For 2015:
+table(all_pheno$pop[all_pheno$Year=="2015"])
+```
+
+## Counts of genotypes
+How many genotypes were present in 2012 and 2015 for each pop?:
+```{r}
+#For DS in 2012:
+length( unique( all_pheno$genotype[ which(all_pheno$pop=="Dic2 x Silur" & all_pheno$Year=="2012") ]))
+#For DS in 2015:
+length( unique( all_pheno$genotype[ which(all_pheno$pop=="Dic2 x Silur" & all_pheno$Year=="2015") ]))
+#For DL in 2012:
+length( unique( all_pheno$genotype[ which(all_pheno$pop=="Dic2 x Lloyd" & all_pheno$Year=="2012") ]))
+#For DL in 2015:
+length( unique( all_pheno$genotype[ which(all_pheno$pop=="Dic2 x Lloyd" & all_pheno$Year=="2015") ]))
+```
+
+How genotypes are repeated in 2012 AND in 2015 for DS?
+```{r}
+aa=table( all_pheno[which(all_pheno$Year=="2012" & all_pheno$pop=="Dic2 x Silur" ) , "genotype"] )
+aa=names(aa[aa>=2])
+bb=table( all_pheno[which(all_pheno$Year=="2015" & all_pheno$pop=="Dic2 x Silur" ) , "genotype"] )
+bb=names(bb[bb>=2])
+length(which(aa%in%bb))
+```
+
+
+
+
+
+## Basic features
+
+###Features of controls and parents in 2012 and 2015. 
+
+```{r}
+AA=all_pheno[ (all_pheno$pop=="Silur" | all_pheno$pop=="Lloyd" | all_pheno$pop=="Dic2" | all_pheno$pop=="pescadou" )  & !is.na(all_pheno$pop) , ]
+a=aggregate(AA$NV , by=list(pop=AA$pop , année=AA$Year) , mean , na.rm=T)
+b=aggregate(AA$Elisa , by=list(pop=AA$pop , année=AA$Year) , mean , na.rm=T)
+c=aggregate(AA$QPCR , by=list(pop=AA$pop , année=AA$Year) , mean , na.rm=T)
+d=aggregate(AA$NV , by=list(pop=AA$pop , année=AA$Year) , length)
+FINAL=cbind(a , b[,3] , c[,3] , d[,3])
+colnames(FINAL)=c("ind","year","SS","Elisa","qPCR","#sample")
+```
+
+```{r my_tab4, results='asis'}
+print(xtable(FINAL), type = "html", include.rownames = F , comment=FALSE)
+```
+
+###Features of DS and DL populations in 2012 and 2015. 
+calculation of Mean, Min, Max and CV for RILS in 2012 and 2015, for SS, Elisa and qPCR
+
+####SS
+```{r}
+# Symptome severity
+AA=all_pheno[  (all_pheno$pop=="Dic2 x Lloyd" | all_pheno$pop=="Dic2 x Silur"  )  & !is.na(all_pheno$pop) , ]
+a=aggregate(AA$NV , by=list(pop=AA$pop , année=AA$Year) , mean , na.rm=T)
+b=aggregate(AA$NV , by=list(pop=AA$pop , année=AA$Year) , min , na.rm=T)
+c=aggregate(AA$NV , by=list(pop=AA$pop , année=AA$Year) , max , na.rm=T)
+d=aggregate(AA$NV , by=list(pop=AA$pop , année=AA$Year) , function(x){sd(x , na.rm=T) / mean(x , na.rm=T) *100 } )
+FINAL=cbind(a , b[,3] , c[,3], d[,3])
+colnames(FINAL)=c("ind","year","mean","min","max","CV" )
+```
+
+```{r my_tab5, results='asis'}
+print(xtable(FINAL), type = "html", include.rownames = F , comment=FALSE)
+```
+
+####ELISA
+```{r}
+# Elisa
+AA=all_pheno[  (all_pheno$pop=="Dic2 x Lloyd" | all_pheno$pop=="Dic2 x Silur"  )  & !is.na(all_pheno$pop) , ]
+a=aggregate(AA$Elisa , by=list(pop=AA$pop , année=AA$Year) , mean , na.rm=T)
+b=aggregate(AA$Elisa , by=list(pop=AA$pop , année=AA$Year) , min , na.rm=T)
+c=aggregate(AA$Elisa , by=list(pop=AA$pop , année=AA$Year) , max , na.rm=T)
+d=aggregate(AA$Elisa , by=list(pop=AA$pop , année=AA$Year) , function(x){sd(x , na.rm=T) / mean(x , na.rm=T) *100 } )
+FINAL=cbind(a , b[,3] , c[,3], d[,3])
+colnames(FINAL)=c("ind","year","mean","min","max","CV" )
+```
+
+```{r my_tab6, results='asis'}
+print(xtable(FINAL), type = "html", include.rownames = F , comment=FALSE)
+```
+
+####qPCR
+```{r}
+# qPCR
+AA=all_pheno[  (all_pheno$pop=="Dic2 x Lloyd" | all_pheno$pop=="Dic2 x Silur"  )  & !is.na(all_pheno$pop) & all_pheno$Year=="2015" , ]
+a=aggregate(AA$QPCR , by=list(pop=AA$pop , année=AA$Year) , mean , na.rm=T)
+b=aggregate(AA$QPCR , by=list(pop=AA$pop , année=AA$Year) , min , na.rm=T)
+c=aggregate(AA$QPCR , by=list(pop=AA$pop , année=AA$Year) , max , na.rm=T)
+d=aggregate(AA$QPCR , by=list(pop=AA$pop , année=AA$Year) , function(x){sd(x , na.rm=T) / mean(x , na.rm=T) *100 } )
+FINAL=cbind(a , b[,3] , c[,3], d[,3])
+colnames(FINAL)=c("ind","year","mean","min","max","CV" )
+```
+
+```{r my_tab7, results='asis'}
+print(xtable(FINAL), type = "html", include.rownames = F , comment=FALSE)
+```
+
+
+
+
+
+#3/ Relationship between phenotyping methods
+
+Pearson correlation between SS, Elisa and qPCR in 2012 and 2015?
+
+
+```{r}
+
+#Compute only between SS and Elisa
+AA=all_pheno[  !is.na(all_pheno$Year) & all_pheno$Year=="2012" , ]
+cor(AA$NV , AA$Elisa, use="complete.obs")
+
+#I can also do a graphical representation:
+boxplot(AA$Elisa  ~ AA$NV)
+```
+
+For 2015: 
+```{r}
+
+# I have 3 comparisons to do:
+AA=all_pheno[  !is.na(all_pheno$Year) & all_pheno$Year=="2015" , ]
+cor(AA$NV , AA$Elisa, use="complete.obs")
+cor(AA$NV , AA$QPCR, use="complete.obs")
+cor(AA$Elisa , AA$QPCR, use="complete.obs")
+```
+
+Correlation between agronomical traits and resistance (SS)
+```{r}
+
+#For DS & precocity
+for(i in list(Y_DS$NV_blup_AR1_2012,Y_DS$ELISA_blup_AR1_2012 , Y_DS$NV_blup_AR1_2015 , Y_DS$ELISA_blup_AR1_2015 , Y_DS$QPCR_blup_AR1_2015 ) ){
+  print(cor( i , Y_DS$epi2013 , use="complete.obs"))
+}
+#For DS & height
+for(i in list(Y_DS$NV_blup_AR1_2012,Y_DS$ELISA_blup_AR1_2012 , Y_DS$NV_blup_AR1_2015 , Y_DS$ELISA_blup_AR1_2015 , Y_DS$QPCR_blup_AR1_2015 ) ){
+  print(cor( i , Y_DS$Ht2013 , use="complete.obs"))
+}
+#For DL & precocity
+for(i in list(Y_DL$NV_blup_AR1_2012,Y_DL$ELISA_blup_AR1_2012 , Y_DL$NV_blup_AR1_2015 , Y_DL$ELISA_blup_AR1_2015 , Y_DL$QPCR_blup_AR1_2015 ) ){
+  print(cor( i , Y_DL$epi , use="complete.obs"))
+}
+#For DS & height
+for(i in list(Y_DL$NV_blup_AR1_2012, Y_DL$ELISA_blup_AR1_2012 , Y_DL$NV_blup_AR1_2015 , Y_DL$ELISA_blup_AR1_2015 , Y_DL$QPCR_blup_AR1_2015 ) ){
+  print(cor( i , Y_DL$Ht , use="complete.obs"))
+}
+
+```
+
+
+
+
+#4/ QTL representation
+
+The LOD threshold is 3.61:
+
+```{r}
+my_lod_seuil=3.61
+```
+
+## Summary table
+
+### Both populations together
+
+Let's build a table that summarizes all significant QTLs:
+
+```{r}
+#data
+variables=c("NV_blup_AR1_2012", "NV_blup_AR1_2015", "ELISA_blup_AR1_2012",  "ELISA_blup_AR1_2015", "QPCR_blup_AR1_2015")
+BOTH=BOTH[ order(BOTH$LG,BOTH$Distance) , ]
+BOTH=BOTH[which(BOTH$variable%in%variables) , ]
+
+# Préparation des paramètres
+xchro=c(seq(5,15,5) )
+chromosomes=c("2A","7A","7B")
+size_IC=1.5
+
+#Création d'un tableau bilan
+bil=data.frame(matrix(0,30,9))
+colnames(bil)=c("pop","carac","chromo","LOD_max","position","marker","IC","R2","a")
+	
+#Boucle pour les 5 variable d'intéret + les 3 chromosomes d'intéret
+data=BOTH
+num_line_bilan=num_line_bilan=0
+num_chromo=0
+for(chrom in chromosomes){
+	num_variable=0
+	num_col=0
+	num_chromo=num_chromo+1
+
+	for(var in variables){
+		num_col=num_col+1
+		current_data=data[ data$variable==var & data$LG==chrom  , ]
+		current_data=current_data[!is.na(current_data$LOD) , ]
+		signif_data=current_data[current_data$LOD>my_lod_seuil  , ]
+		
+		#Si j'ai des marqueurs significatifs
+		if(nrow(signif_data)>0){
+			
+			#Je récupère les infos de ce QTL
+			LOD_max=max(signif_data$LOD)
+			mark_max=signif_data$marqueur[signif_data$LOD==LOD_max]
+			pos_max=signif_data$Distance[signif_data$LOD==LOD_max]
+			r2_max=signif_data$R2[signif_data$LOD==LOD_max]
+			a_max=signif_data$a[signif_data$LOD==LOD_max]
+
+			#Détermination IC --> je bloque la zone max a 30 cM
+			in_IC=current_data[ current_data$LOD > (LOD_max-size_IC) & current_data$Distance > (pos_max-30) & current_data$Distance < (pos_max+30)  , ]
+			IC_min=min(in_IC$Distance)
+			IC_max=max(in_IC$Distance)
+			
+			#Je remplie le tableau bilan
+			num_line_bilan=num_line_bilan+1
+			bil[num_line_bilan , 1]="BOTH"
+			bil[num_line_bilan , 2]=var
+			bil[num_line_bilan , 3]=chrom
+			bil[num_line_bilan , 4]=LOD_max
+			bil[num_line_bilan , 5]=pos_max[1]
+			bil[num_line_bilan , 6]=as.character(mark_max)[1]
+			bil[num_line_bilan , 7]=paste(IC_min, IC_max, sep="-")
+			bil[num_line_bilan , 8]=r2_max[1]
+			bil[num_line_bilan , 9]=a_max[1]
+			
+			}
+}}
+	
+
+# Clean and print the Table
+bil=bil[bil$pop!=0 , ]
+bil=bil[ order(bil$pop , bil$chromo , bil$carac) , ]
+```
+
+```{r my_tab1, results='asis'}
+print(xtable(bil), type = "html", include.rownames = F , comment=FALSE)
+```
+
+### Pop by pop
+
+```{r}
+
+#data
+variables=c("NV_blup_AR1_2012", "NV_blup_AR1_2015", "ELISA_blup_AR1_2012",  "ELISA_blup_AR1_2015", "QPCR_blup_AR1_2015")
+DS=DS[ order(DS$LG,DS$Distance) , ]
+DS=DS[which(DS$variable%in%variables) , ]
+DL=DL[ order(DL$LG,DL$Distance) , ]
+DL=DL[which(DL$variable%in%variables) , ]
+
+# Préparation des paramètres
+xchro=c(seq(5,15,5) )
+chromosomes=c("2A","7A","7B")
+size_IC=1.5
+
+#Création d'un tableau bilan
+bil=data.frame(matrix(0,30,9))
+colnames(bil)=c("pop","carac","chromo","LOD_max","position","marker","IC","R2","a")
+
+# loop
+num_line_bilan=0
+for(pop in list(DS,DL)){
+	data=pop
+	num_chromo=0
+
+	for(chrom in chromosomes){
+		num_variable=0
+		num_col=0
+		num_chromo=num_chromo+1
+
+		for(var in variables){
+			num_col=num_col+1
+			current_data=data[ data$variable==var & data$LG==chrom  , ]
+			current_data=current_data[!is.na(current_data$LOD) , ]
+			signif_data=current_data[current_data$LOD>my_lod_seuil  , ]
+			
+			#Si j'ai des marqueurs significatifs
+			if(nrow(signif_data)>0){
+				
+				#Je récupère les infos de ce QTL
+				LOD_max=max(signif_data$LOD)
+				mark_max=signif_data$marqueur[signif_data$LOD==LOD_max]
+				pos_max=signif_data$Distance[signif_data$LOD==LOD_max]
+				r2_max=signif_data$R2[signif_data$LOD==LOD_max]
+				a_max=signif_data$a[signif_data$LOD==LOD_max]
+	
+				#Détermination IC --> je bloque la zone max a 30 cM
+				in_IC=current_data[ current_data$LOD > (LOD_max-size_IC) & current_data$Distance > (pos_max-30) & current_data$Distance < (pos_max+30)  , ]
+				IC_min=min(in_IC$Distance)
+				IC_max=max(in_IC$Distance)
+				
+				#Je remplie le tableau bilan
+				num_line_bilan=num_line_bilan+1
+				bil[num_line_bilan , 1]=ifelse(identical(pop,DS) , "DS" , "DL")
+				bil[num_line_bilan , 2]=var
+				bil[num_line_bilan , 3]=chrom
+				bil[num_line_bilan , 4]=LOD_max
+				bil[num_line_bilan , 5]=pos_max[1]
+				bil[num_line_bilan , 6]=as.character(mark_max)[1]
+				bil[num_line_bilan , 7]=paste(IC_min, IC_max, sep="-")
+				bil[num_line_bilan , 8]=r2_max[1]
+				bil[num_line_bilan , 9]=a_max[1]
+				
+				}
+}}}
+
+# Clean the Table
+bil=bil[bil$pop!=0 , ]
+bil=bil[ order(bil$pop , bil$chromo , bil$carac) , ]
+```
+
+```{r my_tab2, results='asis'}
+print(xtable(bil), type = "html", include.rownames = F , comment=FALSE)
+```
+
+## Visualize LOD-scores
+
+### Both populations together
+This is the figure 3 of the paper:
+
+```{r}
+#Charge data
+BOTH=BOTH[ order(BOTH$LG,BOTH$Distance) , ]
+
+#Output
+par(mfrow=c(1,2))
+my_colors=brewer.pal(6,"Paired")
+
+#BOTH 7A
+par(mar=c(5,5,2,0))
+a=BOTH[BOTH$variable=="NV_blup_AR1_2012" & BOTH$LG=="7A" & !is.na(BOTH$LOD) , ] ; plot(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD score"  , col=my_colors[1] , lwd=1.6, xlab="" )
+abline(h=3.61 , col="grey")
+a=BOTH[BOTH$variable=="ELISA_blup_AR1_2012"  & BOTH$LG=="7A" & !is.na(BOTH$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD", col=my_colors[3], lwd=1.6)
+a=BOTH[BOTH$variable=="NV_blup_AR1_2015" & BOTH$LG=="7A" & !is.na(BOTH$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[2], lwd=1.6)
+a=BOTH[BOTH$variable=="ELISA_blup_AR1_2015" & BOTH$LG=="7A" & !is.na(BOTH$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[4], lwd=1.6)
+a=BOTH[BOTH$variable=="QPCR_blup_AR1_2015" & BOTH$LG=="7A" & !is.na(BOTH$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[6], lwd=1.6)
+mtext("position on chromosome 7A (cM)" , side=1 , line=3 , col="black" , cex=1)
+#Ajout légende
+legend("topright" , horiz=F , col=my_colors[c(1,3,2,4,6)] , legend=c("SS 2012" , "Elisa 2012" , "SS 2015", "Elisa 2015" , "qPCR 2015") , bty="n" , lty=1 , pt.cex=2, lwd=1.6)
+
+#BOTH 7B
+par(mar=c(5,1,2,4))
+a=BOTH[BOTH$variable=="NV_blup_AR1_2012" & BOTH$LG=="7B" & !is.na(BOTH$LOD) , ] ; plot(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="" , col=my_colors[1] , yaxt="n", lwd=1.6 , xlab="")
+abline(h=3.61 , col="grey")
+a=BOTH[BOTH$variable=="ELISA_blup_AR1_2012"  & BOTH$LG=="7B" & !is.na(BOTH$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD", col=my_colors[3], lwd=1.6)
+a=BOTH[BOTH$variable=="NV_blup_AR1_2015" & BOTH$LG=="7B" & !is.na(BOTH$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[2], lwd=1.6)
+a=BOTH[BOTH$variable=="ELISA_blup_AR1_2015" & BOTH$LG=="7B" & !is.na(BOTH$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[4], lwd=1.6)
+a=BOTH[BOTH$variable=="QPCR_blup_AR1_2015" & BOTH$LG=="7B" & !is.na(BOTH$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[6], lwd=1.6)
+mtext("position on chromosome 7B (cM)" , side=1 , line=3 , col="black" , cex=1)
+```
+
+### Populations one by one
+There is the representation of QTLs found on chromosome 7A and 7B for populations DS and DL separately (Fig3 in the paper.)
+```{r}
+
+# Order data:
+DS=DS[ order(DS$LG,DS$Distance) , ]
+DL=DL[ order(DL$LG,DL$Distance) , ]
+
+#Make the plot
+par(mfrow=c(2,2))
+my_colors=brewer.pal(6,"Paired")
+
+#DS 7A
+par(mar=c(0,5,2,0))
+a=DS[DS$variable=="NV_blup_AR1_2012" & DS$LG=="7A" & !is.na(DS$LOD) , ] ; plot(a$LOD ~ a$Distance , type="l" , ylim=c(0,7) , ylab="LOD score" , xaxt="n" , col=my_colors[1] , lwd=1.6 )
+abline(h=3 , col="grey")
+a=DS[DS$variable=="ELISA_blup_AR1_2012"  & DS$LG=="7A" & !is.na(DS$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD", col=my_colors[3], lwd=1.6)
+a=DS[DS$variable=="NV_blup_AR1_2015" & DS$LG=="7A" & !is.na(DS$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[2], lwd=1.6)
+a=DS[DS$variable=="ELISA_blup_AR1_2015" & DS$LG=="7A" & !is.na(DS$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[4], lwd=1.6)
+a=DS[DS$variable=="QPCR_blup_AR1_2015" & DS$LG=="7A" & !is.na(DS$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[6], lwd=1.6)
+legend("topleft", "Dic2 x Silur" , col="black" , cex=1.2 , bty="n")
+#Ajout légende
+legend("topright" , horiz=F , col=my_colors[c(1,3,2,4,6)] , legend=c("SS 2012" , "Elisa 2012" , "SS 2015", "Elisa 2015" , "qPCR 2015") , bty="n" , lty=1 , pt.cex=2, lwd=1.6)
+
+#DS 7B
+par(mar=c(0,1,2,4))
+a=DS[DS$variable=="NV_blup_AR1_2012" & DS$LG=="7B" & !is.na(DS$LOD) , ] ; plot(a$LOD ~ a$Distance , type="l" , ylim=c(0,7) , ylab="" , xaxt="n" , col=my_colors[1] , yaxt="n", lwd=1.6)
+abline(h=3 , col="grey")
+a=DS[DS$variable=="ELISA_blup_AR1_2012"  & DS$LG=="7B" & !is.na(DS$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD", col=my_colors[3], lwd=1.6)
+a=DS[DS$variable=="NV_blup_AR1_2015" & DS$LG=="7B" & !is.na(DS$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[2], lwd=1.6)
+a=DS[DS$variable=="ELISA_blup_AR1_2015" & DS$LG=="7B" & !is.na(DS$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[4], lwd=1.6)
+a=DS[DS$variable=="QPCR_blup_AR1_2015" & DS$LG=="7B" & !is.na(DS$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[6], lwd=1.6)
+legend("topleft", "Dic2 x Lloyd" , col="black" , cex=1.2 , bty="n")
+
+#DL 7A
+par(mar=c(5,5,1,0))
+a=DL[DL$variable=="NV_blup_AR1_2012" & DL$LG=="7A" & !is.na(DL$LOD) , ] ; plot(a$LOD ~ a$Distance , type="l" , ylim=c(0,7) , ylab="LOD score", xlab="" , col=my_colors[1], lwd=1.6 )
+abline(h=3 , col="grey")
+a=DL[DL$variable=="ELISA_blup_AR1_2012"  & DL$LG=="7A" & !is.na(DL$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD", col=my_colors[3], lwd=1.6)
+a=DL[DL$variable=="NV_blup_AR1_2015" & DL$LG=="7A" & !is.na(DL$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[2], lwd=1.6)
+a=DL[DL$variable=="ELISA_blup_AR1_2015" & DL$LG=="7A" & !is.na(DL$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[4], lwd=1.6)
+a=DL[DL$variable=="QPCR_blup_AR1_2015" & DL$LG=="7A" & !is.na(DL$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[6], lwd=1.6)
+mtext("position on chromosome 7A (cM)" , side=1 , line=3 , col="black" , cex=1)
+legend("topleft", "Dic2 x Silur" , col="black" , cex=1.2 , bty="n")
+
+#DL 7B
+par(mar=c(5,1,1,4))
+a=DL[DL$variable=="NV_blup_AR1_2012" & DL$LG=="7B" & !is.na(DL$LOD) , ] ; plot(a$LOD ~ a$Distance , type="l" , ylim=c(0,7) , ylab="" , xlab=""  , col=my_colors[1] , yaxt="n", lwd=1.6)
+abline(h=3 , col="grey")
+a=DL[DL$variable=="ELISA_blup_AR1_2012"  & DL$LG=="7B" & !is.na(DL$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD", col=my_colors[3], lwd=1.6)
+a=DL[DL$variable=="NV_blup_AR1_2015" & DL$LG=="7B" & !is.na(DL$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[2], lwd=1.6)
+a=DL[DL$variable=="ELISA_blup_AR1_2015" & DL$LG=="7B" & !is.na(DL$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[4], lwd=1.6)
+a=DL[DL$variable=="QPCR_blup_AR1_2015" & DL$LG=="7B" & !is.na(DL$LOD) , ] ; points(a$LOD ~ a$Distance , type="l" , ylim=c(0,10) , ylab="LOD" , col=my_colors[6], lwd=1.6)
+mtext("position on chromosome 7B (cM)" , side=1 , line=3 , col="black" , cex=1)
+legend("topleft", "Dic2 x Lloyd" , col="black" , cex=1.2 , bty="n")
+
+```
+
+
+## Visualize IC
+
+There is the representation of every significant QTLs found (chromosome 7A and 7B and 2A) for DS and DL (Fig2 in the paper.). In this part we determine and show the IC of each QTL.
+We show it for the 2 pops separately only:
+```{r}
+
+# Variable I am going to represent:
+variables=c("NV_blup_AR1_2012", "NV_blup_AR1_2015", "ELISA_blup_AR1_2012",  "ELISA_blup_AR1_2015", "QPCR_blup_AR1_2015")
+DS=DS[which(DS$variable%in%variables) , ]
+DL=DL[which(DL$variable%in%variables) , ]
+
+# Set parameters of graphic:
+my_colors=brewer.pal(5,"Paired")
+xchro=c(seq(5,15,5) )
+chromosomes=c("2A","7A","7B")
+size_IC=1.5
+
+# Initiate a summary file (Supplementary data)
+bil=data.frame(matrix(0,30,9))
+colnames(bil)=c("pop","carac","chromo","LOD_max","position","marker","IC","R2","a")
+
+#Mise en place du fond de carte:
+par(mar=c(0,5,2,1))
+plot(1,1,col="transparent",bty="n", xaxt="n", yaxt="l" , xlab="", ylab="position in cM" , xlim=c(3,max(xchro)+3) , ylim=c(320,-5) )
+num=0
+for(chrom in chromosomes){
+	num=num+1
+	A=DS[DS$variable=="NV_blup_AR1_2012" & DS$LG==chrom, ]
+	points(rep(xchro[num],nrow(A)) , A$Distance , pch=20 , cex=0.8 , col="grey")
+	}
+	
+#Boucle pour les 5 variable d'intéret + les 3 chromosomes d'intéret + Les 2 pops
+num_line_bilan=0
+for(pop in list(DS,DL)){
+	data=pop
+	num_chromo=0
+
+	for(chrom in chromosomes){
+		num_variable=0
+		num_col=0
+		num_chromo=num_chromo+1
+
+		for(var in variables){
+			num_col=num_col+1
+			current_data=data[ data$variable==var & data$LG==chrom  , ]
+			current_data=current_data[!is.na(current_data$LOD) , ]
+			signif_data=current_data[current_data$LOD>my_lod_seuil  , ]
+			
+			#Si j'ai des marqueurs significatifs
+			if(nrow(signif_data)>0){
+				
+				#Je récupère les infos de ce QTL
+				LOD_max=max(signif_data$LOD)
+				mark_max=signif_data$marqueur[signif_data$LOD==LOD_max]
+				pos_max=signif_data$Distance[signif_data$LOD==LOD_max]
+				r2_max=signif_data$R2[signif_data$LOD==LOD_max]
+				a_max=signif_data$a[signif_data$LOD==LOD_max]
+	
+				#Détermination IC --> je bloque la zone max a 30 cM
+				in_IC=current_data[ current_data$LOD > (LOD_max-size_IC) & current_data$Distance > (pos_max-30) & current_data$Distance < (pos_max+30)  , ]
+				IC_min=min(in_IC$Distance)
+				IC_max=max(in_IC$Distance)
+				
+				#Je remplie le tableau bilan
+				num_line_bilan=num_line_bilan+1
+				bil[num_line_bilan , 1]=ifelse(identical(pop,DS) , "DS" , "DL")
+				bil[num_line_bilan , 2]=var
+				bil[num_line_bilan , 3]=chrom
+				bil[num_line_bilan , 4]=LOD_max
+				bil[num_line_bilan , 5]=pos_max[1]
+				bil[num_line_bilan , 6]=as.character(mark_max)[1]
+				bil[num_line_bilan , 7]=paste(IC_min, IC_max, sep="-")
+				bil[num_line_bilan , 8]=r2_max[1]
+				bil[num_line_bilan , 9]=a_max[1]
+				
+				#J'ajoute le trait corresponant a ma variable
+				num_variable=num_variable+0.5
+				if(identical(pop,DL)){ num_variable=-abs(num_variable) }
+				lines(c(xchro[num_chromo]+num_variable,xchro[num_chromo]+num_variable) , c(IC_min,IC_max) , col=my_colors[num_col], lwd=6)
+				num_variable=abs(num_variable)
+				}
+}}}
+	
+#Ajout légende et nom de chromosome?
+text(xchro , rep(-10,3) , chromosomes , col="orange")
+legend(14 , 240 , horiz=F , col=my_colors , legend=c("SS 2012" , "SS 2015", "Elisa 2012" , "Elisa 2015" , "qPCR 2015") , bty="n" , lty=1 , lwd=6 )
+
+# Clean and print the Table
+bil=bil[bil$pop!=0 , ]
+bil=bil[ order(bil$pop , bil$chromo , bil$carac) , ]
+
+# Show the supplementary data
+print(head(bil))
+```
+
+#5/ Epistatic effect between QTLs
+
+```{r}
+
+my_fun=function(path, markers, col){
+	setwd(path)
+	Y=read.table(file = "phenotypage.csv" , header = TRUE, sep = ";", dec = ".", na.strings = "NA")
+	colnames(Y)[1]="geno"
+	geno <- read.table(file="genotypage.csv" , sep = ";" , header = F, na.strings = "-")
+	geno=as.matrix(geno)
+	colnames(geno)=geno[1,]
+	geno=as.data.frame(geno[-1 , ])
+	geno=geno[ , c(1,which(colnames(geno)%in%markers))]
+	data=merge(geno , Y , by.x=1 , by.y=1 )
+	data=data[ , c(1:3, col)]
+	return(data)
+	}
+
+# Function to calculate interaction effect between QTLs:
+analyse_inter=function(data, res, name){
+	
+	# Prepare
+	data=data[ !is.na(data[,2]) & !is.na(data[,3]) , ]
+	my_mark=paste(data[,2],data[,3],sep="-")
+	means <- round(tapply(data[,4],my_mark,mean,na.rm=T) ,2)
+	
+	# Calculate interaction
+	model=lm(data[,4] ~ data[,2] * data[,3])
+	sum=summary(model)
+	tot_r2=round(sum$r.squared,3)
+	inter_pval=round(sum$coefficients[4,4],10)
+	
+	# Complete summary files
+	res[num , c(4:9)]=c(means, tot_r2, inter_pval)
+	return(res)
+}
+
+
+# ========================
+# Préparation d'un tableau bilan:
+res=data.frame(matrix(0,4,9))
+colnames(res)=c("phenotype","marker_7A_QTL","marker_7B_QTL","A-A","A-B","B-A","B-B","R2_tot","pval_inter")
+num=0
+
+# SS 2012
+num=num+1
+markers=c("Cluster_10461|Contig1|likelySeq@159" ,  "Cluster_932|Contig1|original@517"  )
+data=my_fun("~/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED" ,  markers , 4)
+res[num , c(1:3)]=c(colnames(data)[4] , markers)
+res=analyse_inter(data, res, "SS-2012" )
+
+# SS 2015
+num=num+1
+markers=c("Cluster_4000|Contig1|likelySeq@264" ,  "Cluster_3623|Contig2|original@924"  )
+data=my_fun("~/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED" ,  markers , 6)
+res[num , c(1:3)]=c(colnames(data)[4] , markers)
+res=analyse_inter(data, res, "SS-2015")
+
+# Elisa 2012
+num=num+1
+markers=c("Cluster_5672|Contig1|likelySeq@976" ,  "Cluster_3623|Contig2|original@924"  )
+data=my_fun("~/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED" ,  markers , 5)
+res[num , c(1:3)]=c(colnames(data)[4] , markers)
+res=analyse_inter(data, res, "Elisa-2012" )
+
+# Elisa 2015
+num=num+1
+markers=c("Cluster_4000|Contig1|likelySeq@264" ,  "Cluster_3623|Contig2|original@924"  )
+#markers=c("Cluster_4000|Contig1|likelySeq@264" ,  "Cluster_268|Contig4|original@2519"  )
+#markers=c("Cluster_268|Contig4|original@2519" ,  "Cluster_3623|Contig2|original@924"  )
+data=my_fun("~/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED" ,  markers , 7)
+res[num , c(1:3)]=c(colnames(data)[4] , markers)
+res=analyse_inter(data, res, "Elisa-2015" )
+
+# Pour Elisa 2015, on va aussi faire la figure 4
+data=my_fun("~/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED" ,  markers , 7)
+data=data[ !is.na(data[,2]) & !is.na(data[,3]) , ]
+my_mark=paste(data[,2],data[,3],sep="-")
+means <- round(tapply(data[,4],my_mark,mean,na.rm=T) ,2)
+par(mfrow=c(1,1) , mar=c(5,5,2,2))
+boxplot(data[,4] ~ my_mark , medlwd=0, cex.axis=0.6, cex.col="grey", las=1, main="" ,ylab="Elisa 2015 BLUP value",  xlab="Bi-locus genotype" , col=rgb(0.3,0.1,0.4,0.2) , xaxt="n", boxwex=0.4) ; 
+my_labels=c( expression(paste('R'["7A"],"-",'R'["7B"])) , expression(paste('R'["7A"],"-",'S'["7B"])) ,  expression(paste('S'["7A"],"-",'R'["7B"])) , expression(paste('S'["7A"],"-",'S'["7B"])) )
+axis(labels=my_labels , at=c(1,2,3,4) , side=T)
+#table(my_mark) if I want to add number of obs
+points(seq(1,4), c(-0.25, -0.01 , 0.01 , 0.25  ), pch=17 , col="orange", cex=2)
+segments(c(0,0,0,0),c(-0.25, -0.01 , 0.01 , 0.25  ),c(1,2,3,4),c(-0.25, -0.01 , 0.01 , 0.25  ) , lty=3, col="grey")
+points(seq(1,4), means, pch=4 , lwd=4 , col="red" , cex=2)
+
+
+```
+
+```{r my_tab3, results='asis'}
+print(xtable(res), type = "html", include.rownames = F , comment=FALSE)
+```

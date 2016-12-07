@@ -1,0 +1,615 @@
+---
+title: "WheatResistance2012-2015"
+author: "Nicolas O. Rode"
+date: "Aug, 18th 2016"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+---
+
+# Set working directory
+```{r}
+setwd("/homedir/rode/Rstudio/Yan/2012-2015/18082016")
+list.files()
+## Load Packages
+##see: http://stats.stackexchange.com/questions/18709/lme4-or-other-open-source-r-package-code-equivalent-to-asreml-r
+library(asreml)
+library(asremlPlus)
+library(lattice)
+source("~/Rstudio/Rsrc/pin.R")
+source("~/Rstudio/Rsrc/AIC_table_function.R")
+
+data <- read.table("~/Rstudio/Yan/2012-2015/18082016/Data2012_2015.csv" , header=T , sep="," , na.strings="NA")
+head(data)
+```
+# Format variables
+```{r}
+## 1529 rows
+nrow(data)
+
+## 423 rows with missing data
+nrow(data[is.na(data$NV)|is.na(data$Elisa)|is.na(data$genotype),])
+
+## 209 missing genotypes
+sum(is.na(data$genotype))
+## 380 missing visual scores
+sum(is.na(data$NV))
+## 416 missing Elisa
+sum(is.na(data$Elisa))
+## 361 missing Elisa
+sum(is.na(data$QPCR[data$Year=="2015"]))
+
+data <- data[order(data$Year,data$Y,data$X),]
+
+## Convert position and year as factors
+data$X <- as.factor(data$X)
+data$Y <- as.factor(data$Y)
+data$Year <- as.factor(data$Year)
+data$Obs <- as.factor(1:nrow(data))
+data$genotype_year <- paste(data$genotype,data$Year,sep="_")
+data$pop2015 <- data$pop
+data$pop2015 <- ifelse(data$Year=="2012",NA,as.character(data$pop2015))
+data$pop2015 <- as.factor(data$pop2015)
+data$pop2015mean <- as.factor(ifelse(data$pop2015=="pescadou","pescadou","DLDS"))
+
+data$cross2015 <- data$cross
+data$cross2015 <- ifelse(data$Year=="2012",NA,as.character(data$cross2015))
+data$cross2015 <- as.factor(data$cross2015)
+data$popmean <- as.factor(ifelse(data$pop=="pescadou","pescadou","DLDS"))
+levels(data$popmean)
+
+## Factors to test for indirect genetic effects
+levY <- sort(unique(c(levels(data$neigh2),levels(data$neigh6))))
+data$neigh2<-factor(data$neigh2,levels=levY)
+data$neigh6<-factor(data$neigh6,levels=levY)
+data$Year2012 <- ifelse(data$Year=="2012",1,0)
+data$Year2015 <- ifelse(data$Year=="2015",1,0)
+## Grid arrangement on the field plot
+Neighbour <- data.frame(matrix(c("neigh1","neigh2","neigh3","neigh8","focal_genotype","neigh4","neigh7","neigh6","neigh5"),byrow=F,ncol=3))
+colnames(Neighbour) <- c("Y1","Y2","Y3")
+rownames(Neighbour) <- c("X1","X2","X3")
+Neighbour
+
+## Dataset for model AR1 on X
+data2 <- data[order(data$Year,data$X,data$Y),]
+
+head(data)
+tail(data,n=7)
+
+```
+
+
+# Phenotypic data
+```{r}
+histogram(~NV|pop*Year,data=data[data$pop=="Dic2 x Lloyd"|data$pop=="Dic2 x Silur",])
+histogram(~Elisa|pop*Year,data=data[data$pop=="Dic2 x Lloyd"|data$pop=="Dic2 x Silur",])
+histogram(~QPCR|pop,data=data[data$pop=="Dic2 x Lloyd"|data$pop=="Dic2 x Silur",])
+
+```
+
+# Severity Score (NV)
+## Model selection
+```{r Severity Score}
+## Spatially uncorrelated and correlated (AR1) environmental variance on row (X) and column (Y) , genotype and no linear X effect (model A for genetic effects and model 3 for residuals)
+## By default, only 13 iterations, so increase this number with maxiter
+m0 <- asreml(NV ~  popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=40,trace=F)
+m0 <-update(m0)
+
+hist(m0$coefficients$random[grepl("_pop_Dic2 x Lloyd",names(m0$coefficients$random))&m0$coefficient$random!=0],main="Dic2 x Lloyd",xlab=NA)
+hist(m0$coefficients$random[grepl("_pop_Dic2 x Silur",names(m0$coefficients$random))&m0$coefficient$random!=0],main="Dic2 x Silur",xlab=NA)
+
+m0$coefficients$fixed
+
+summary(m0)$varcomp
+
+## No genetic correlation between years (model B for genetic effects)
+##- corgh(Year)->diag(Year)
+m1 <- asreml(NV ~  popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~diag(Year):at(pop,"Dic2 x Lloyd"):genotype+diag(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=50,trace=F)
+m1 <-update(m1)
+
+## No difference in genetic effects between years (model C for genetic effects)
+##- corgh(Year):
+m2 <- asreml(NV ~  popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~at(pop,"Dic2 x Lloyd"):genotype+at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=40,trace=F)
+m2 <-update(m2)
+
+summary(m2)$varcomp
+
+## Same spatially uncorrelated environmental variances, σ_uncor^2, in 2012 and 2015
+## - at(Year):X_Y + Obs
+m3 <- asreml(NV ~  popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+Obs,na.method.X="include",data=data,maxiter=40,trace=F)
+summary(m3)$varcomp
+
+## AR1 on X only
+m4 <- asreml(NV ~  popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):id(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=40,trace=F)
+summary(m4)$varcomp
+
+## AR1 on Y only
+m5 <- asreml(NV ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):id(X):ar1(Y),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data2,maxiter=40,trace=F)
+summary(m5)$varcomp
+
+## No spatially correlated environmental variance (model 1 for residuals)
+m6 <- asreml(NV ~  popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):id(Y):id(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype,na.method.X="include",data=data,maxiter=40,trace=F)
+
+summary(m6)$varcomp
+
+## No spatially uncorrelated environmental variance (model 2 for residuals)
+m7 <- asreml(NV ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype,na.method.X="include",data=data,maxiter=40,trace=F)
+
+
+AICcASRemlRmd(paste("m",0:7,sep=""))
+filename<-paste('AICcTable_ASReml-R_Analyses_', Sys.Date(),".csv",sep="")
+file.rename(from=filename, to=paste('AICcTable_ASReml-R_Analyses_', Sys.Date(),"NV",".csv",sep=""))
+
+summary(m0)$varcomp
+
+## Goodness of fit
+plot(m0)
+plot.asrVariogram(variogram(m0))
+
+## Spatially correlated residuals
+hist(m0$residuals,main="Autocorrelated residual distribution")
+## Spatially uncorrelated residuals
+hist(m0$coefficient$random[grepl("X_Y",names(m0$coefficient$random))&m0$coefficient$random!=0],main="Non-autocorrelated residual  distribution")
+
+
+## Check spatial auto-correlation
+
+## 2012
+y <- -100:100*0.1
+plot(y,summary(m0)$varcomp[10,2]^abs(y))
+x <- -10:10*2
+plot(x,summary(m0)$varcomp[11,2]^abs(x))
+## 2015
+y <- -100:100*0.1
+plot(y,summary(m0)$varcomp[13,2]^abs(y))
+x <- -10:10*2
+plot(x,summary(m0)$varcomp[14,2]^abs(x))
+```
+
+## Fixed effects for severity score (NV)
+```{r}
+## Fixed effects
+m0 <- asreml(NV ~  popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=40,trace=F)
+
+m0$coefficients$fixed
+
+##Conditional Wald F-test to test factors and their interaction
+wald.asreml(m0, ssType="conditional", denDF="numeric")
+
+##Predictions for the interaction
+pred <- predict(m0,classify="popmean:Year",sed=list("popmean:Year"=T))
+pred$predictions
+
+## Covariance between estimates
+svc(m0)
+
+```
+
+
+## Compute genetic correlation for severity score (NV)
+```{r}
+m0 <- asreml(NV ~ -1+popmean:Year,rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=40,trace=F)
+
+summary(m0)$varcomp[c(1,4),2:3]
+
+```
+## Compute heritabilities for NV
+```{r}
+
+## Heritability Dic2 x Lloyd 2012
+summary(m0)$varcomp[2,2]/sum(summary(m0)$varcomp[c(2,7),2])
+Heritability <- as.numeric(pin(m0,prop~(V2)/(V2+V7)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+## Heritability Dic2 x Lloyd 2015
+summary(m0)$varcomp[3,2]/sum(summary(m0)$varcomp[c(3,8),2])
+Heritability <- as.numeric(pin(m0,prop~(V3)/(V3+V8)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+## Heritability Dic2 x Silur 2012
+summary(m0)$varcomp[5,2]/sum(summary(m0)$varcomp[c(5,7),2])
+Heritability <- as.numeric(pin(m0,prop~(V5)/(V5+V7)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+## Heritability Dic2 x Silur 2015
+summary(m0)$varcomp[6,2]/sum(summary(m0)$varcomp[c(6,8),2])
+Heritability <- as.numeric(pin(m0,prop~(V6)/(V6+V8)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+```
+
+## Proportion of total variance explained by spatial autocorrelation for NV
+```{r}
+
+## Spatially correlated variance Dic2 x Lloyd 2012
+summary(m0)$varcomp[9,2]/sum(summary(m0)$varcomp[c(2,7,9),2])
+## Spatial autocorrelation Dic2 x Silur 2012
+summary(m0)$varcomp[9,2]/sum(summary(m0)$varcomp[c(5,7,9),2])
+
+## Spatially correlated variance Dic2 x Lloyd 2015
+summary(m0)$varcomp[12,2]/sum(summary(m0)$varcomp[c(3,8,12),2])
+## Spatial autocorrelation  Dic2 x Silur 2015
+summary(m0)$varcomp[12,2]/sum(summary(m0)$varcomp[c(6,8,12),2])
+```
+
+## Extract BLUPs for NV
+```{r}
+hist(m0$coefficient$random[grepl("genotype",names(m0$coefficient$random))&m0$coefficient$random!=0],main="BLUP distribution")
+
+## 357 genotypes in total
+length(unique(data$genotype[data$cross=="cross"&!is.na(data$cross)&!is.na(data$NV)]))
+
+## 10 genotypes without replication
+tab <- table(data$genotype[data$cross=="cross"&!is.na(data$cross)&!is.na(data$NV)])
+length(tab[tab==1])
+
+## Extract BLUPS
+coefNV <- m0$coefficient$random[grepl("genotype",names(m0$coefficient$random))&m0$coefficient$random!=0]
+## Extract genotype, pop, year
+coefNVname <- strsplit(names(coefNV),":")
+coefNVname <- lapply(coefNVname,function(x){strsplit(x,"_")})
+
+year = do.call("rbind", lapply(coefNVname, "[[", 1))
+pop = do.call("rbind", lapply(coefNVname, "[[", 2))
+geno = do.call("rbind", lapply(coefNVname, "[[", 3))
+
+coefNV <- data.frame(pop[,3],geno[,2],year[,2],coefNV)
+
+names(coefNV) <- c("pop","geno","year","BLUP")
+head(coefNV)
+
+## 357 genotypes
+nrow(coefNV[coefNV$year=="2012",])
+nrow(coefNV[coefNV$year=="2015",])
+
+coefNV$genotype_year <- paste(coefNV$geno,coefNV$year,sep="_")
+
+coefNV$real <- coefNV$genotype_year%in%data$genotype_year
+head(coefNV[coefNV$real==FALSE,])
+## Get rid of genotypes with infered BLUPS (i.e. that were not observed that year)
+coefNV <- coefNV[coefNV$real==T,]
+write.csv(coefNV,file="BLUPsNV2012_2015.csv",row.names=F,quote=F)
+
+```
+
+# ELISA
+## Model selection
+```{r ELISA}
+
+## Spatially uncorrelated and correlated (AR1) environmental variance on row (X) and column (Y) , genotype and no linear X effect (model A for direct genetic effects and model 3 for residuals) (not converged)
+## By default, only 13 iterations, so increase this number with maxiter (not converged)
+m0 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Silur"):genotype+corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=100,trace=F)
+
+hist(m0$coefficients$random[grepl("_pop_Dic2 x Lloyd",names(m0$coefficients$random))&m0$coefficient$random!=0],main="Dic2 x Lloyd",xlab=NA)
+hist(m0$coefficients$random[grepl("_pop_Dic2 x Silur",names(m0$coefficients$random))&m0$coefficient$random!=0],main="Dic2 x Silur",xlab=NA)
+
+summary(m0)$varcomp
+
+## No genetic correlation between years (model B for genetic effects)
+##- corgh(Year)->diag(Year)
+m1 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~diag(Year):at(pop,"Dic2 x Lloyd"):genotype+diag(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=50,trace=F)
+
+## No difference in genetic effects between years (model C for genetic effects)
+##- corgh(Year):
+m2 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~at(pop,"Dic2 x Lloyd"):genotype+at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=40,trace=F)
+summary(m2)$varcomp
+
+## Same spatially uncorrelated environmental variances, σ_uncor^2, in 2012 and 2015
+## - at(Year):X_Y + Obs
+m3 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+Obs,na.method.X="include",data=data,maxiter=40,trace=F)
+summary(m3)$varcomp
+
+##AR1 on X only
+m4 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):id(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=40,trace=F)
+m4 <- update(m4)
+summary(m4)$varcomp
+
+##AR1 on Y only
+m5 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):id(X):ar1(Y),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data2,maxiter=40,trace=F)
+summary(m5)$varcomp
+
+## No spatially correlated environmental variance (model 1 for residuals)
+m6 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):id(Y):id(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype,na.method.X="include",data=data,maxiter=40,trace=F)
+
+summary(m6)$varcomp
+
+## No spatially uncorrelated environmental variance (model 2 for residuals)
+m7 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype,na.method.X="include",data=data,maxiter=40,trace=F)
+
+AICcASRemlRmd(paste("m",0:7,sep=""))
+filename<-paste('AICcTable_ASReml-R_Analyses_', Sys.Date(),".csv",sep="")
+file.rename(from=filename, to=paste('AICcTable_ASReml-R_Analyses_', Sys.Date(),"Elisa",".csv",sep=""))
+
+
+summary(m0)$varcomp
+
+## Goodness of fit
+plot(m0)
+plot.asrVariogram(variogram(m0))
+hist(m0$residuals,main="Autocorrelated residual distribution")
+hist(m0$coefficient$random[grepl("X_Y",names(m0$coefficient$random))&m0$coefficient$random!=0],main="Non-autocorrelated residual  distribution")
+
+
+## Check spatial auto-correlation
+y <- -100:100*0.1
+plot(y,summary(m0)$varcomp[10,2]^abs(y))
+x <- -10:10*2
+plot(x,summary(m0)$varcomp[11,2]^abs(x))
+
+y <- -100:100*0.1
+plot(y,summary(m0)$varcomp[13,2]^abs(y))
+x <- -10:10*2
+plot(x,summary(m0)$varcomp[14,2]^abs(x))
+```
+
+## Fixed effects for Elisa
+```{r}
+## Fixed effects
+m0 <- asreml(Elisa ~ popmean+Year+popmean:Year+pol(X,-1)+pol(Y,-1),rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Silur"):genotype+corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=100,trace=F)
+
+
+m0$coefficients$fixed
+
+##Conditional Wald F-test to test factors and their interaction
+wald.asreml(m0, ssType="conditional", denDF="numeric")
+
+##Predictions for the interaction
+pred <- predict(m0,classify="popmean:Year",sed=list("popmean:Year"=T))
+pred$predictions
+
+## Covariance between estimates
+svc(m0)
+
+```
+
+## Compute genetic correlation for Elisa
+```{r}
+m0 <- asreml(Elisa ~ -1+popmean,rcov=~at(Year):ar1(Y):ar1(X),random=~corgh(Year):at(pop,"Dic2 x Lloyd"):genotype+corgh(Year):at(pop,"Dic2 x Silur"):genotype+at(Year):X_Y,na.method.X="include",data=data,maxiter=40,trace=F)
+m0 <- update(m0)
+m0 <- update(m0)
+
+summary(m0)$varcomp[c(1,4),2:3]
+```
+
+## Compute heritabilities for Elisa
+```{r}
+## Heritability Dic2 x Lloyd 2012
+summary(m0)$varcomp[2,2]/sum(summary(m0)$varcomp[c(2,7),2])
+Heritability <- as.numeric(pin(m0,prop~(V2)/(V2+V7)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+## Heritability Dic2 x Lloyd 2015
+summary(m0)$varcomp[3,2]/sum(summary(m0)$varcomp[c(3,8),2])
+Heritability <- as.numeric(pin(m0,prop~(V3)/(V3+V8)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+## Heritability Dic2 x Silur 2012
+summary(m0)$varcomp[5,2]/sum(summary(m0)$varcomp[c(5,7),2])
+
+Heritability <- as.numeric(pin(m0,prop~(V5)/(V5+V7)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+## Heritability Dic2 x Silur 2015
+summary(m0)$varcomp[6,2]/sum(summary(m0)$varcomp[c(6,8),2])
+
+Heritability <- as.numeric(pin(m0,prop~(V6)/(V6+V8)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+```
+## Proportion of total variance explained by spatial autocorrelation for Elisa
+```{r}
+
+## Spatial autocorrelation Dic2 x Lloyd 2012
+summary(m0)$varcomp[9,2]/sum(summary(m0)$varcomp[c(2,7,9),2])
+## Spatial autocorrelation Dic2 x Silur 2012
+summary(m0)$varcomp[9,2]/sum(summary(m0)$varcomp[c(5,7,9),2])
+
+## Spatial autocorrelation Dic2 x Lloyd 2012
+summary(m0)$varcomp[12,2]/sum(summary(m0)$varcomp[c(3,8,12),2])
+
+## Spatial autocorrelation  Dic2 x Silur 2015
+summary(m0)$varcomp[12,2]/sum(summary(m0)$varcomp[c(6,8,12),2])
+```
+## Extract BLUPs
+```{r}
+hist(m0$coefficient$random[grepl("genotype",names(m0$coefficient$random))&m0$coefficient$random!=0],main="BLUP distribution")
+
+## 357 genotypes in total
+length(unique(data$genotype[data$cross=="cross"&!is.na(data$cross)&!is.na(data$Elisa)]))
+
+## 15 genotypes without replication
+tab <- table(data$genotype[data$cross=="cross"&!is.na(data$cross)&!is.na(data$Elisa)])
+length(tab[tab==1])
+
+## Extract BLUPS
+coefElisa <- m0$coefficient$random[grepl("genotype",names(m0$coefficient$random))&m0$coefficient$random!=0]
+## Extract genotype, pop, year
+coefElisaname <- strsplit(names(coefElisa),":")
+coefElisaname <- lapply(coefElisaname,function(x){strsplit(x,"_")})
+
+year = do.call("rbind", lapply(coefElisaname, "[[", 1))
+pop = do.call("rbind", lapply(coefElisaname, "[[", 2))
+geno = do.call("rbind", lapply(coefElisaname, "[[", 3))
+
+BLUPElisa <- data.frame(pop[,3],geno[,2],year[,2],coefElisa)
+
+names(BLUPElisa) <- c("pop","geno","year","BLUP")
+head(BLUPElisa)
+
+## 357 genotypes
+nrow(BLUPElisa[BLUPElisa$year=="2012",])
+nrow(BLUPElisa[BLUPElisa$year=="2015",])
+
+BLUPElisa$genotype_year <- paste(BLUPElisa$geno,BLUPElisa$year,sep="_")
+
+BLUPElisa$real <- BLUPElisa$genotype_year%in%data$genotype_year
+head(BLUPElisa[BLUPElisa$real==FALSE,])
+
+## Example of an unreplicated genotype
+data[data$genotype=="BX07.2.1f1.17.1"&!is.na(data$genotype),]
+BLUPElisa[BLUPElisa$geno=="BX07.2.1f1.17.1"&!is.na(BLUPElisa$geno),]
+
+## Get rid of genotypes with infered BLUPS (i.e. that were not observed that year)
+BLUPElisa <- BLUPElisa[BLUPElisa$real==T,]
+
+write.csv(BLUPElisa,file="BLUPsElisa2012_2015.csv",row.names=F,quote=F)
+
+```
+
+
+# qPCR
+## Model selection
+```{r qPCR}
+data2015 <- data[data$Year=="2015",]
+## Spatially uncorrelated and correlated (AR1) environmental variance on row (X) and column (Y) , genotype and no linear X effect (model A for direct genetic effects and model 3 for residuals) (not converged)
+## By default, only 13 iterations, so increase this number with maxiter
+m0 <- asreml(QPCR ~ -1+pop2015mean+pol(X,-1)+pol(Y,-1),rcov=~ar1(Y):ar1(X),random=~at(pop2015,"Dic2 x Lloyd"):genotype+at(pop2015,"Dic2 x Silur"):genotype+X_Y,na.method.X="include",data=data2015,maxiter=40,trace=F)
+summary(m0)$varcomp
+
+## Distribution of breeding values for DL
+hist(m0$coefficients$random[grepl("_pop2015_Dic2 x Lloyd",names(m0$coefficients$random))&m0$coefficient$random!=0],main="Dic2 x Lloyd",xlab=NA)
+## Distribution of breeding values for DS
+hist(m0$coefficients$random[grepl("_pop2015_Dic2 x Silur",names(m0$coefficients$random))&m0$coefficient$random!=0],main="Dic2 x Silur",xlab=NA)
+
+##  No spatially correlated environmental variance (model 1 for residuals)
+m1 <- asreml(QPCR ~ -1+pop2015mean+pol(X,-1)+pol(Y,-1),rcov=~id(Y):id(X),random=~at(pop2015,"Dic2 x Lloyd"):genotype+at(pop2015,"Dic2 x Silur"):genotype,na.method.X="include",data=data2015,maxiter=40,trace=F)
+summary(m1)$varcomp
+
+## No spatially uncorrelated environmental variance (model 2 for residuals)
+m2 <- asreml(QPCR ~ -1+pop2015mean+pol(X,-1)+pol(Y,-1),rcov=~ar1(Y):ar1(X),random=~at(pop2015,"Dic2 x Lloyd"):genotype+at(pop2015,"Dic2 x Silur"):genotype,na.method.X="include",data=data2015,maxiter=40,trace=F)
+
+##AR1 on X only
+m3 <- asreml(QPCR ~ -1+pop2015mean+pol(X,-1)+pol(Y,-1),rcov=~id(Y):ar1(X),random=~at(pop2015,"Dic2 x Lloyd"):genotype+at(pop2015,"Dic2 x Silur"):genotype+X_Y,na.method.X="include",data=data2015,maxiter=40,trace=F)
+summary(m3)$varcomp
+
+##AR1 on Y only
+m4 <- asreml(QPCR ~ -1+pop2015mean+pol(X,-1)+pol(Y,-1),rcov=~id(X):ar1(Y),random=~at(pop2015,"Dic2 x Lloyd"):genotype+at(pop2015,"Dic2 x Silur"):genotype+X_Y,na.method.X="include",data=data2[data2$Year=="2015",],maxiter=40,trace=F)
+summary(m4)$varcomp
+
+
+AICcASRemlRmd(paste("m",0:4,sep=""))
+filename<-paste('AICcTable_ASReml-R_Analyses_', Sys.Date(),".csv",sep="")
+file.rename(from=filename, to=paste('AICcTable_ASReml-R_Analyses_', Sys.Date(),"qPCR",".csv",sep=""))
+
+
+#plot.asrVariogram(variogram(m0))
+hist(m0$residuals,main="Autocorrelated residual distribution")
+hist(m0$coefficient$random[grep("X_Y",names(m0$coefficient$random))],main="Non-autocorrelated residual  distribution")
+
+
+## Check spatial auto-correlation
+y <- -100:100*0.1
+plot(y,summary(m0)$varcomp[5,2]^abs(y))
+x <- -10:10*2
+plot(x,summary(m0)$varcomp[6,2]^abs(x))
+```
+## Fixed effects for qPCR
+```{r}
+## Fixed effects
+m1 <- asreml(QPCR ~ 1+pop2015mean+pol(X,-1)+pol(Y,-1),rcov=~id(Y):id(X),random=~at(pop2015,"Dic2 x Lloyd"):genotype+at(pop2015,"Dic2 x Silur"):genotype,na.method.X="include",data=data2015,maxiter=40,trace=F)
+
+##Conditional Wald F-test to test factors and their interaction
+wald.asreml(m1, ssType="conditional", denDF="numeric")
+
+##Predictions for the interaction
+pred <- predict(m1,classify="pop2015mean",sed=list("pop2015mean"=T))
+pred$predictions
+
+## Covariance between estimates
+svc(m1)
+
+```
+
+## Model with lowest AICc
+```{r}
+m1 <- asreml(QPCR ~ -1+pop2015mean,rcov=~id(Y):id(X),random=~at(pop2015,"Dic2 x Lloyd"):genotype+at(pop2015,"Dic2 x Silur"):genotype,na.method.X="include",data=data[data$Year=="2015",],maxiter=40,trace=F)
+summary(m1)$varcomp
+
+summary(m1)$varcomp[,2:3]
+
+```
+
+## Compute heritabilities for qPCR
+```{r}
+## Heritability Dic2 x Lloyd 2012
+summary(m1)$varcomp[1,2]/sum(summary(m1)$varcomp[c(1,3),2])
+Heritability <- as.numeric(pin(m1,prop~(V1)/(V1+V3)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+## Heritability Dic2 x Silur 2012
+summary(m1)$varcomp[2,2]/sum(summary(m1)$varcomp[c(2,3),2])
+Heritability <- as.numeric(pin(m1,prop~(V2)/(V2+V3)))
+CI<-c(Heritability[1]-qnorm(0.975)* Heritability[2], Heritability[1]+qnorm(0.975)* Heritability[2])
+names(CI) <- c("Lower95%CI","Upper95%CI")
+CI
+
+
+```
+
+
+### Spatial autocorrelation for qPCR (second best model)
+```{r}
+## Spatial autocorrelation Dic2 x Lloyd 2012
+summary(m0)$varcomp[4,2]/sum(summary(m0)$varcomp[c(1,3,4),2])
+## Spatial autocorrelation Dic2 x Silur 2012
+summary(m0)$varcomp[4,2]/sum(summary(m0)$varcomp[c(2,3,4),2])
+
+```
+## Extract BLUPs
+```{r}
+hist(m1$coefficient$random[grepl("genotype",names(m1$coefficient$random))&m1$coefficient$random!=0],main="BLUP distribution")
+
+## 344 genotypes in total
+length(unique(data$genotype[data$cross2015=="cross"&!is.na(data$cross2015)&!is.na(data$QPCR)]))
+
+## 278 genotypes without replication
+tab <- table(data$genotype[data$cross2015=="cross"&!is.na(data$cross)&!is.na(data$QPCR)])
+length(tab[tab==1])
+
+## Extract BLUPS
+coefqPCR <- m1$coefficient$random[grepl("genotype",names(m1$coefficient$random))&m1$coefficient$random!=0]
+## Extract genotype, pop, year
+coefqPCRname <- strsplit(names(coefqPCR),":")
+coefqPCRname <- lapply(coefqPCRname,function(x){strsplit(x,"_")})
+
+pop = do.call("rbind", lapply(coefqPCRname, "[[", 1))
+geno = do.call("rbind", lapply(coefqPCRname, "[[", 2))
+
+BLUPqPCR <- data.frame(pop[,3],geno[,2],coefqPCR)
+
+names(BLUPqPCR) <- c("pop","geno","BLUP")
+head(BLUPqPCR)
+
+## 344 genotypes
+BLUPqPCR$year <- as.factor(rep("2015",nrow(BLUPqPCR)))
+nrow(BLUPqPCR[BLUPqPCR$year=="2015",])
+
+BLUPqPCR$genotype_year <- paste(BLUPqPCR$geno,BLUPqPCR$year,sep="_")
+
+BLUPqPCR$real <- BLUPqPCR$genotype_year%in%data$genotype_year
+
+## Get rid of genotypes with infered BLUPS (i.e. that were not observed that year)
+BLUPqPCR <- BLUPqPCR[BLUPqPCR$real==T,]
+write.csv(BLUPqPCR,file="BLUPsqPCR2015.csv",row.names=F,quote=F)
+
+```

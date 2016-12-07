@@ -1,0 +1,6 @@
+modnames,ParNum,LL,AIC,AICc,DeltaAICc,EvRatio,weight,fixed,Gside,Rside
+m0,10,-864.653,1749.306,1749.847,0,1,0.336,-1 + pop2015mean + pol(X, -1) + pol(Y, -1),at(pop2015, "Dic2 x Lloyd"):genotype + at(pop2015, "Dic2 x Silur"):genotype + X_Y,~ar1(Y):ar1(X)
+m1,7,-867.814,1749.628,1749.901,0.054,1.027,0.327,-1 + pop2015mean + pol(X, -1) + pol(Y, -1),at(pop2015, "Dic2 x Lloyd"):genotype + at(pop2015, "Dic2 x Silur"):genotype,~id(Y):id(X)
+m3,9,-866.553,1751.106,1751.547,1.7,2.34,0.144,-1 + pop2015mean + pol(X, -1) + pol(Y, -1),at(pop2015, "Dic2 x Lloyd"):genotype + at(pop2015, "Dic2 x Silur"):genotype + X_Y,~id(Y):ar1(X)
+m2,9,-866.564,1751.128,1751.569,1.722,2.366,0.142,-1 + pop2015mean + pol(X, -1) + pol(Y, -1),at(pop2015, "Dic2 x Lloyd"):genotype + at(pop2015, "Dic2 x Silur"):genotype,~ar1(Y):ar1(X)
+m4,9,-867.579,1753.158,1753.599,3.752,6.527,0.051,-1 + pop2015mean + pol(X, -1) + pol(Y, -1),at(pop2015, "Dic2 x Lloyd"):genotype + at(pop2015, "Dic2 x Silur"):genotype + X_Y,~id(X):ar1(Y)
