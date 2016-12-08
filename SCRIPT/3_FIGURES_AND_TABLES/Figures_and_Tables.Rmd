@@ -665,8 +665,6 @@ axis(labels=my_labels , at=c(1,2,3,4) , side=T)
 points(seq(1,4), c(-0.25, -0.01 , 0.01 , 0.25  ), pch=17 , col="orange", cex=2)
 segments(c(0,0,0,0),c(-0.25, -0.01 , 0.01 , 0.25  ),c(1,2,3,4),c(-0.25, -0.01 , 0.01 , 0.25  ) , lty=3, col="grey")
 points(seq(1,4), means, pch=4 , lwd=4 , col="red" , cex=2)
-
-
 ```
 
 ```{r my_tab3, results='asis'}
