@@ -1,7 +1,7 @@
 ---
 title: "Interaction between markers"
 author: "Yan Holtz"
-date: "October 2016"
+date: "December 2016"
 output:
   rmdformats::readthedown:
     highlight: kate
@@ -9,329 +9,408 @@ output:
     toc: yes
 ---
 
-```{r setup, include=FALSE}
-# To use cache in the document
-knitr::opts_chunk$set(cache=TRUE)
-```
-
-This file aims to provide more details concerning the epistatic relationships between every pairs of markers. The idea is to calculate the interaction term of every pair of markers. To avoid huge computation time, we considered only one marker every slice of 10 cM along the genetic map.
-
-# Calculate interactions
 
 
-The study is done using the QTLRel library
+This file is part of the publication concerning the genetic determinism of the resistance of Durum Wheat to Durum Wheat. To main QTLs on chromosome 7A and 7B have been detected in the study and the epistatic relationship between these 2 QTLs has been described. However, a reviewer rightly pointed out that the epistatic relationship between every pairs of markers should be checked. The idea of this script is thus to calculate the interaction term of every pair of markers. To avoid huge computation time, we considered only one marker every slice of 10 cM along the genetic map. Then, the script describes the results of these interactions.
+
+Libraries:
 ```{r}
-library(QTLRel)
 library(xtable)
 ```
 
+# Calculate interactions
+The script *Interaction_calculation_for_review.R* does all the calculation. It cut the genetic map by slices of 5 cM. For each pair of slice, it randomly takes 2 markers and compute a linear model: phenotyp = u + marker1 + marker2 + marker1 x marker2. The R2 and the interaction term p-values are saved. We used it on a calculation cluster.  
+We realized it for the 5 traits of the study: NV2012, NV2015, Elisa2012, Elisa2015, qPCR2015.
+
+```
+# Not run
+cd ~/work/MOSAIQUE_REVIEW_EPISTASIE
+for i in $(echo 1A 1B 2A 2B 3A 3B 4A 4B 5A 5B 6A 6B 7A 7B); do qsub -q normal.q -b yes -cwd -N tmp_epistasie "Rscript Interaction_calculation_for_review.R genotypage.csv phenotypage.csv genetic_map.txt $i NV_blup_AR1_2012" ; done
+for i in $(echo 1A 1B 2A 2B 3A 3B 4A 4B 5A 5B 6A 6B 7A 7B); do qsub -q normal.q -b yes -cwd -N tmp_epistasie "Rscript Interaction_calculation_for_review.R genotypage.csv phenotypage.csv genetic_map.txt $i ELISA_blup_AR1_2012" ; done
+for i in $(echo 1A 1B 2A 2B 3A 3B 4A 4B 5A 5B 6A 6B 7A 7B); do qsub -q normal.q -b yes -cwd -N tmp_epistasie "Rscript Interaction_calculation_for_review.R genotypage.csv phenotypage.csv genetic_map.txt $i NV_blup_AR1_2015" ; done
+for i in $(echo 1A 1B 2A 2B 3A 3B 4A 4B 5A 5B 6A 6B 7A 7B); do qsub -q normal.q -b yes -cwd -N tmp_epistasie "Rscript Interaction_calculation_for_review.R genotypage.csv phenotypage.csv genetic_map.txt $i ELISA_blup_AR1_2015" ; done
+for i in $(echo 1A 1B 2A 2B 3A 3B 4A 4B 5A 5B 6A 6B 7A 7B); do qsub -q normal.q -b yes -cwd -N tmp_epistasie "Rscript Interaction_calculation_for_review.R genotypage.csv phenotypage.csv genetic_map.txt $i QPCR_blup_AR1_2015" ; done
+```
+
+Then, we concatenated the results of each chromosome in a summar file:
+```
+# Concatenate results (--> ~287000 raws)
+cd ~/work/MOSAIQUE_REVIEW_EPISTASIE
+more result_epistasie_K_1A_NV_blup_AR1_2012.txt | head -1 > bilan_NV_2012
+cat result_epi*NV_blup_AR1_2012* | grep -v "pheno" | cut -f2- -d" " >>  bilan_NV_2012
+more result_epistasie_K_1A_ELISA_blup_AR1_2012.txt | head -1 > bilan_Elisa_2012
+cat result_epi*ELISA_blup_AR1_2012* | grep -v "pheno" | cut -f2- -d" "  >>  bilan_Elisa_2012
+more result_epistasie_K_1A_NV_blup_AR1_2015.txt | head -1 > bilan_NV_2015
+cat result_epi*NV_blup_AR1_2015* | grep -v "pheno" | cut -f2- -d" "  >>  bilan_NV_2015
+more result_epistasie_K_1A_ELISA_blup_AR1_2015.txt | head -1 > bilan_Elisa_2015
+cat result_epi*ELISA_blup_AR1_2015* | grep -v "pheno" | cut -f2- -d" "  >>  bilan_Elisa_2015
+more result_epistasie_K_1A_QPCR_blup_AR1_2015.txt | head -1 > bilan_qPCR_2015
+cat result_epi*QPCR_blup_AR1_2015* | grep -v "pheno" | cut -f2- -d" "  >>  bilan_qPCR_2015
+
+#Transfert
+gzip bilan*
+scp holtz@CC2-login.cirad.fr://homedir/holtz/work/MOSAIQUE_REVIEW_EPISTASIE/bila* .
 
 
+```
 
+# Analysing the interaction
 
-
-
-
-
-
-
-
-# Symptom Severity (SS)
-
-## Load data
-I load the genotyping matrix first.
+Load files:
 ```{r}
-genotype<-read.table("/Users/holtz/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED/genotypage.csv", sep = ";" , header = F, na.strings = "-")
-genotype=as.matrix(genotype)
-colnames(genotype)=genotype[1,]
-genotype=as.data.frame(genotype[-1 , ])
-names(genotype)[1]<-"geno"
-print("--- Your genotyping matrix looks correct. Dimension of the matrix are :")
-print(dim(genotype))
-# I copy this matrix 2 times, since I read 2012 and 2015 together.
-rownames(genotype)=genotype[,1]
-genotype=genotype[,-1]
-a=genotype ; rownames(a)=paste(rownames(a),"2012",sep="_")
-b=genotype ; rownames(b)=paste(rownames(b),"2015",sep="_")
-genotype=rbind(a,b)
+# Analyse des fichiers dans R:
+NV2012=read.table("bilan_NV_2012.gz", header=T) ; NV2012=NV2012[!is.na(NV2012$pval_inter) , ]
+Elisa2012=read.table("bilan_Elisa_2012.gz", header=T) ; Elisa2012=Elisa2012[!is.na(Elisa2012$pval_inter) , ]
+NV2015=read.table("bilan_NV_2015.gz", header=T) ; NV2015=NV2015[!is.na(NV2015$pval_inter) , ]
+Elisa2015=read.table("bilan_Elisa_2015.gz", header=T) ; Elisa2015=Elisa2015[!is.na(Elisa2015$pval_inter) , ]
+qPCR2015=read.table("bilan_qPCR_2015.gz", header=T) ; qPCR2015=qPCR2015[!is.na(qPCR2015$pval_inter) , ]
 ```
 
-Then the genetic map:
+How many comparison did we do?
 ```{r}
-map <- read.table("/Users/holtz/Dropbox/Publi_Mosaique/DATA/DATA/genetic_map.txt" , header=T , dec = ".", na.strings = "-" , check.names=F)
-colnames(map) <- c("LG", "marqueur", "Distance","group_physique","Posi_physique")
-rownames(map) <- map$marqueur
-map$LG <- as.factor(map$LG)
-print("--- Your genetic map looks correct. Dimension of the map are :")
-print(dim(map))
-map=map[	, c(2,1,3,5)]
-colnames(map)=c("snp","chr", "dist", "phyPos")
+nrow(NV2012)
 ```
 
-And finally the phenotyping matrix
+Histogram of p-values of interaction for each variable:
 ```{r}
-BLUP<-read.table("/Users/holtz/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED/phenotypage.csv", header = TRUE, sep=";")
-colnames(BLUP)[1]="geno"
-print("--- Your Phenotyping matrix looks correct. Dimension of the matrix are :")
-print(dim(BLUP))
-# Fichier de phénotypage modifié, il va falloir mettre la NV de 2012 et 2015 ensemble, avec une colonne année.
-a=BLUP[, c(1,2)] ; a$year="2012" ; colnames(a)=c("geno", "NV_blup_AR1","year") ; #a[,2]=a[,2]/0.745  # 
-a[,2]=ifelse(substr(a$geno, 1,2)=="TT", a[,2]/0.66 , a[,2]/0.83)
-b=BLUP[, c(1,4)] ; b$year="2015" ; colnames(b)=c("geno", "NV_blup_AR1", "year") ; #b[,2]=b[,2]/1.2   # 
-b[,2]=ifelse(substr(b$geno, 1,2)=="TT", b[,2]/1.2 , a[,2]/1.21)
-BLUP=rbind(a,b)
-rownames(BLUP)=paste( BLUP[,1], BLUP$year,sep="_")
-BLUP=BLUP[,-1]
-# Note: On peut garder les blups tels quels / ou les pondéré par la variance génet de chaque année moyennée sur les 2 pops / ou par la variance génet de chaque année et chaque pop.
+par(mfrow=c(2,3))
+hist(NV2012$pval_inter , col=rgb(0.1,0.3,0.4,0.6) , border=F, xlab="pvalue interaction between markers", breaks=100, main="NV2012")
+hist(Elisa2012$pval_inter , col=rgb(0.1,0.3,0.4,0.6) , border=F, xlab="pvalue interaction between markers", breaks=100, main="Elisa2012")
+hist(NV2015$pval_inter , col=rgb(0.1,0.3,0.4,0.6) , border=F, xlab="pvalue interaction between markers", breaks=100, main="NV2015")
+hist(Elisa2015$pval_inter , col=rgb(0.1,0.3,0.4,0.6) , border=F, xlab="pvalue interaction between markers", breaks=100, main="Elisa2015")
+hist(qPCR2015$pval_inter , col=rgb(0.1,0.3,0.4,0.6) , border=F, xlab="pvalue interaction between markers", breaks=100, main="qPCR2015")
 ```
 
-
-## Prepare data
-We need to have genotype and phenotype in the same order:
+Since the number of test we do si very huge, we will use a false discovery rate (FDR) of 5% as a threshold of significativity. For that we use the qvalue library.
 ```{r}
-Y=na.omit(BLUP)
-Y=Y[which(rownames(Y)%in%rownames(genotype)) , ]
-genotype=genotype[which(rownames(genotype)%in%rownames(Y)) , ]
-genotype=genotype[ match(rownames(Y),rownames(genotype)) , ]
+# qvalue library for FDR
+library(qvalue)
 ```
 
-## Calculate kinship matrix
+
+
+
+
+
+
+
+
+
+[//]: =========================================================================================================================
+
+## NV 2012
+Calculate qvalue from pvalues
 ```{r}
-# missing data
-set.seed(123)
-XNNA=genotype
-my_fun=function(x){length(x[x=="A" & !is.na(x) ])/length(!is.na(x)) }
-prop=apply(XNNA , 2 , my_fun)
-for(i in c(1:ncol(XNNA))){
- 	aa=XNNA[,i][is.na(XNNA[,i])]
- 	bb=rbinom(length(aa),1,prob=prop[i])
-	XNNA[,i][is.na(XNNA[,i])]=c("B","A")[bb+1]
- 	}
-	
-# Change "A" to "AA"
-XNNA=as.matrix(XNNA)
-XNNA[which(XNNA=="A")]<-"AA"
-XNNA[which(XNNA=="B")]<-"BB"
-	
-# Kinship matrix
-K<-genMatrix(XNNA)
-	
-# I = identity matrix
-I<-diag(nrow(Y))
+qv = qvalue(p=NV2012$pval_inter, fdr.level=0.05, robust=TRUE)
+NV2012$qvalues=qv$qvalues
 ```
 
-
-
-## Markers effect
-We compute a complete modele in QTLRel including year effect, marker effect and interaction between both.This model is computed marker per marker using the scanOne function. We compare the likelihood of this model with the model that does not include any marker, what gives us the marker effect trough its LOD score.
+transforme pvalues of markers in LOD:
 ```{r}
-mod1<-estVC(y=Y$NV_blup_AR1, x=Y$year, v=list(AA=K$AA,DD=NULL,HH=NULL,AD=NULL,MH=NULL,EE=I))
-llk.hk2 <- scanOne(y=Y$NV_blup_AR1, vc=mod1, intcovar=Y$year, gdat=XNNA ,test="Chisq")
+NV2012$pval_mark1=-log10(NV2012$pval_mark1+0.0000000000000000001)
+NV2012$pval_mark2=-log10(NV2012$pval_mark2+0.0000000000000000001)
 ```
-Manhattan plot to visualize the effect of each marker.
+
+How many significant interactions do we have?
 ```{r}
-# Merge LODs with the genetic map
-AA=merge(map,data.frame( names(llk.hk2$p) , llk.hk2$p), by.x=1 , by.y=1, all.x=T)
-AA=AA[order(AA$chr, AA$dist) , ]
-AA=AA[!is.na(AA$llk.hk2.p) , ]
-# And plot it
-plot(-log10(AA$llk.hk2.p) , pch=20 , col=as.numeric(AA$chr) , cex=1.3, xaxt="n" )
-abline(h=3.6, col="grey", lwd=1.5)
-num=seq(1,nrow(AA))
-num=aggregate(num, by=list(AA$chr), mean , na.rm=T)
-axis(1, at=num[,2], labels=num[,1])
+a=NV2012[which(NV2012$qvalues<0.05) , ]
+nrow(a)
+```
+```{r mdd, results='asis' , echo=FALSE}
+print(xtable(a ), type = "html", include.rownames = T , comment=FALSE)
 ```
 
-Summary of the significant markers:
+
+Let's represent the qvalues we have:
 ```{r}
-to_print=AA[-log10(AA$llk.hk2.p)>3.61 , ] 
+plot(sort(NV2012$qvalues) , ylab="q-values", ylim=c(0,1) )
 ```
 
-```{r aavfdjng, results='asis' , echo=FALSE}
-print(xtable(to_print), type = "html", include.rownames = F , comment=FALSE)
-```
-
-## Interaction effect.
-We can also check for which marker the **interaction** effect was significant?
+What is the lowest q-value we have?
 ```{r}
-#Compute 2 models: one with interaction, one without interaction
-llk.hk_inter1 <-scanOne(y=Y$NV_blup_AR1, x=Y$year, vc=mod1, gdat=XNNA ,test="None")
-llk.hk_inter2 <- scanOne(y=Y$NV_blup_AR1, vc=mod1, intcovar=Y$year, gdat=XNNA ,test="None")
-
-# Find pvalue of each marker for interaction significance
-diff_deviance <- llk.hk_inter2$p - llk.hk_inter1$p
-pvaluesexpected=1-pchisq(diff_deviance, 1)
-
-# Merge with map
-AA=merge(map,data.frame( names(pvaluesexpected) , pvaluesexpected), by.x=1 , by.y=1, all.x=T)
-AA=AA[order(AA$chr, AA$dist) , ]
-AA=AA[!is.na(AA$pvaluesexpected) , ]
-
-# Plot
-plot(-log10(AA$pvaluesexpected) , pch=20 , col=as.numeric(AA$chr) , cex=1.3, xaxt="n" )
-abline(h=3.6, col="grey", lwd=1.5)
-num=seq(1,nrow(AA))
-num=aggregate(num, by=list(AA$chr), mean , na.rm=T)
-axis(1, at=num[,2], labels=num[,1])
+min(NV2012$qvalues)
 ```
 
 
 
 
+What interests us is the relationship between the q-value of interaction, and the R2 of the model. Let's represent both, and check if we find out a pair of marker with a high R2 and a high interaction term? Every pair of markers will be blue, except the interactions between chromosome 7A and chromosome 7B. I will use dots only, except for representing the interaction between the QTL 7A and the QTL 7B described in the study.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Elisa
-
-## Load data
-I load the genotyping matrix first.
 ```{r}
-genotype<-read.table("/Users/holtz/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED/genotypage.csv", sep = ";" , header = F, na.strings = "-")
-genotype=as.matrix(genotype)
-colnames(genotype)=genotype[1,]
-genotype=as.data.frame(genotype[-1 , ])
-names(genotype)[1]<-"geno"
-print("--- Your genotyping matrix looks correct. Dimension of the matrix are :")
-print(dim(genotype))
-# I copy this matrix 2 times, since I read 2012 and 2015 together.
-rownames(genotype)=genotype[,1]
-genotype=genotype[,-1]
-a=genotype ; rownames(a)=paste(rownames(a),"2012",sep="_")
-b=genotype ; rownames(b)=paste(rownames(b),"2015",sep="_")
-genotype=rbind(a,b)
+my_colors=ifelse( (NV2012$chromo_ref=="7B" & NV2012$chromo_other=="7A") | (NV2012$chromo_ref=="7A" & NV2012$chromo_other=="7B") , "red" , "blue")
+my_pch=ifelse( NV2012$chromo_ref=="7A" & NV2012$chromo_other=="7B" & NV2012$min_Kref>=115 & NV2012$max_Kref<=120 & NV2012$min_Kother>=45 & NV2012$max_Kother<=50 , 15, 20)
+plot(NV2012$R2~NV2012$qvalues, col=my_colors, pch=my_pch, xlab="qvalue", ylab="R2" )
 ```
 
-Then the genetic map:
+It is quite clear that the only relevant QTL is the one described in the study. A few other pairs of markers presents an interaction, but always with a small R2 and are thus probably due to hazard.
+
+We can have a look to the 10 biggest R2:
 ```{r}
-map <- read.table("/Users/holtz/Dropbox/Publi_Mosaique/DATA/DATA/genetic_map.txt" , header=T , dec = ".", na.strings = "-" , check.names=F)
-colnames(map) <- c("LG", "marqueur", "Distance","group_physique","Posi_physique")
-rownames(map) <- map$marqueur
-map$LG <- as.factor(map$LG)
-print("--- Your genetic map looks correct. Dimension of the map are :")
-print(dim(map))
-map=map[	, c(2,1,3,5)]
-colnames(map)=c("snp","chr", "dist", "phyPos")
+tmp1=head(NV2012[order(NV2012$R2, decreasing=T) , ], 10)
+tmp2=head(NV2012[order(NV2012$qvalues) , ] , 10)
 ```
 
-And finally the phenotyping matrix
+
+```{r my_aaa, results='asis', echo=FALSE}
+print(xtable(tmp1), type = "html", include.rownames = F , comment=FALSE)
+```
+As presented in this table, the highest R2 always involved QTL 7A or QTL 7B, or both.
+
+Let's look the 10 lowest qvalues:
+```{r my_aab, results='asis', echo=FALSE}
+print(xtable(tmp2), type = "html", include.rownames = F , comment=FALSE)
+```
+[//]: =========================================================================================================================
+
+
+
+
+
+
+
+
+
+
+
+[//]: =========================================================================================================================
+
+## Elisa 2012
+Calculate qvalue from pvalues
 ```{r}
-BLUP<-read.table("/Users/holtz/Dropbox/Publi_Mosaique/DATA/DATA/GROUPED/phenotypage.csv", header = TRUE, sep=";")
-colnames(BLUP)[1]="geno"
-print("--- Your Phenotyping matrix looks correct. Dimension of the matrix are :")
-print(dim(BLUP))
-# Put ELisa2012 and 2015 together
-a=BLUP[, c(1,3)] ; a$year="2012" ; colnames(a)=c("geno", "Elisa_blup_AR1","year") ; #a[,2]=a[,2]/0.745  # 
-a[,2]=ifelse(substr(a$geno, 1,2)=="TT", a[,2]/0.08373045 , a[,2]/ 0.07145543)
-b=BLUP[, c(1,5)] ; b$year="2015" ; colnames(b)=c("geno", "Elisa_blup_AR1", "year") ; #b[,2]=b[,2]/1.2   # 
-b[,2]=ifelse(substr(b$geno, 1,2)=="TT", b[,2]/0.14488006 , a[,2]/0.13135315)
-BLUP=rbind(a,b)
-rownames(BLUP)=paste( BLUP[,1], BLUP$year,sep="_")
-BLUP=BLUP[,-1]
-# Note: On peut garder les blups tels quels / ou les pondéré par la variance génet de chaque année moyennée sur les 2 pops / ou par la variance génet de chaque année et chaque pop.
+qv = qvalue(p=Elisa2012$pval_inter, fdr.level=0.05, robust=TRUE)
+Elisa2012$qvalues=qv$qvalues
 ```
 
-
-## Prepare data
-We need to have genotype and phenotype in the same order:
+transforme pvalues of markers in LOD:
 ```{r}
-Y=na.omit(BLUP)
-Y=Y[which(rownames(Y)%in%rownames(genotype)) , ]
-genotype=genotype[which(rownames(genotype)%in%rownames(Y)) , ]
-genotype=genotype[ match(rownames(Y),rownames(genotype)) , ]
+Elisa2012$pval_mark1=-log10(Elisa2012$pval_mark1+0.0000000000000000001)
+Elisa2012$pval_mark2=-log10(Elisa2012$pval_mark2+0.0000000000000000001)
 ```
 
-## Calculate kinship matrix
+How many significant interactions do we have?
 ```{r}
-# missing data
-set.seed(123)
-XNNA=genotype
-my_fun=function(x){length(x[x=="A" & !is.na(x) ])/length(!is.na(x)) }
-prop=apply(XNNA , 2 , my_fun)
-for(i in c(1:ncol(XNNA))){
- 	aa=XNNA[,i][is.na(XNNA[,i])]
- 	bb=rbinom(length(aa),1,prob=prop[i])
-	XNNA[,i][is.na(XNNA[,i])]=c("B","A")[bb+1]
- 	}
-	
-# Change "A" to "AA"
-XNNA=as.matrix(XNNA)
-XNNA[which(XNNA=="A")]<-"AA"
-XNNA[which(XNNA=="B")]<-"BB"
-	
-# Kinship matrix
-K<-genMatrix(XNNA)
-	
-# I = identity matrix
-I<-diag(nrow(Y))
+my_signif=Elisa2012[which(Elisa2012$qvalues<0.05) , ]
+nrow(my_signif)
 ```
 
+Let's show the details of these significant interactions:
+```{r aassd, results='asis', echo=FALSE}
+print(xtable(my_signif), type = "html", include.rownames = F , comment=FALSE)
+```
+All the significant interactions are related to the interactions between 7A and 7B QTL. The highest interaction is found between the 2 zones containing the QTLs IC. Other significant interaction are found for the slices surrounding the QTLs, due to linkage desequilibrium.  
 
+The same representation as above, looking for relationship between R2 and qvalue, highlighting the QTL and 7A x 7B interactions:
 
-## Markers effect
-We compute a complete modele in QTLRel including year effect, marker effect and interaction between both.This model is computed marker per marker using the scanOne function. We compare the likelihood of this model with the model that does not include any marker, what gives us the marker effect trough its LOD score.
 ```{r}
-mod1<-estVC(y=Y$Elisa_blup_AR1, x=Y$year, v=list(AA=K$AA,DD=NULL,HH=NULL,AD=NULL,MH=NULL,EE=I))
-llk.hk2 <- scanOne(y=Y$Elisa_blup_AR1, vc=mod1, intcovar=Y$year, gdat=XNNA ,test="Chisq")
+my_colors=ifelse( (Elisa2012$chromo_ref=="7B" & Elisa2012$chromo_other=="7A") | (Elisa2012$chromo_ref=="7A" & Elisa2012$chromo_other=="7B") , "red" , "blue")
+my_pch=ifelse( Elisa2012$chromo_ref=="7A" & Elisa2012$chromo_other=="7B" & Elisa2012$min_Kref>=100 & Elisa2012$max_Kref<=105 & Elisa2012$min_Kother>=55 & Elisa2012$max_Kother<=60 , 15, 20)
+plot(Elisa2012$R2~Elisa2012$qvalues, col=my_colors, pch=my_pch, xlab="qvalue", ylab="R2" )
+abline(v=0.05, col="grey")
 ```
-Manhattan plot to visualize the effect of each marker.
+[//]: =========================================================================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+[//]: =========================================================================================================================
+
+## NV 2015
+Calculate qvalue from pvalues
 ```{r}
-# Merge LODs with the genetic map
-AA=merge(map,data.frame( names(llk.hk2$p) , llk.hk2$p), by.x=1 , by.y=1, all.x=T)
-AA=AA[order(AA$chr, AA$dist) , ]
-AA=AA[!is.na(AA$llk.hk2.p) , ]
-# And plot it
-plot(-log10(AA$llk.hk2.p) , pch=20 , col=as.numeric(AA$chr) , cex=1.3, xaxt="n" )
-abline(h=3.6, col="grey", lwd=1.5)
-num=seq(1,nrow(AA))
-num=aggregate(num, by=list(AA$chr), mean , na.rm=T)
-axis(1, at=num[,2], labels=num[,1])
+qv = qvalue(p=NV2015$pval_inter, fdr.level=0.05, robust=TRUE)
+NV2015$qvalues=qv$qvalues
 ```
 
-Summary of the significant markers:
+
+
+transforme pvalues of markers in LOD:
 ```{r}
-to_print=AA[-log10(AA$llk.hk2.p)>3.61 , ] 
+NV2015$pval_mark1=-log10(NV2015$pval_mark1+0.0000000000000000001)
+NV2015$pval_mark2=-log10(NV2015$pval_mark2+0.0000000000000000001)
 ```
 
-```{r addng, results='asis' , echo=FALSE}
-print(xtable(to_print), type = "html", include.rownames = F , comment=FALSE)
-```
 
-## Interaction effect.
-We can also check for which marker the **interaction** effect was significant?
+How many significant interactions do we have?
 ```{r}
-#Compute 2 models: one with interaction, one without interaction
-llk.hk_inter1 <-scanOne(y=Y$Elisa_blup_AR1, x=Y$year, vc=mod1, gdat=XNNA ,test="None")
-llk.hk_inter2 <- scanOne(y=Y$Elisa_blup_AR1, vc=mod1, intcovar=Y$year, gdat=XNNA ,test="None")
-
-# Find pvalue of each marker for interaction significance
-diff_deviance <- llk.hk_inter2$p - llk.hk_inter1$p
-pvaluesexpected=1-pchisq(diff_deviance, 1)
-
-# Merge with map
-AA=merge(map,data.frame( names(pvaluesexpected) , pvaluesexpected), by.x=1 , by.y=1, all.x=T)
-AA=AA[order(AA$chr, AA$dist) , ]
-AA=AA[!is.na(AA$pvaluesexpected) , ]
-
-# Plot
-plot(-log10(AA$pvaluesexpected) , pch=20 , col=as.numeric(AA$chr) , cex=1.3, xaxt="n" )
-abline(h=3.6, col="grey", lwd=1.5)
-num=seq(1,nrow(AA))
-num=aggregate(num, by=list(AA$chr), mean , na.rm=T)
-axis(1, at=num[,2], labels=num[,1])
+my_signif=NV2015[which(NV2015$qvalues<0.05) , ]
+nrow(my_signif)
 ```
+
+Let's show the details of these significant interactions:
+```{r aklsd, results='asis', echo=FALSE}
+print(xtable(my_signif), type = "html", include.rownames = F , comment=FALSE)
+```
+
+
+Let's represent the qvalues we have:
+```{r}
+plot(sort(NV2015$qvalues) , ylab="q-values", ylim=c(0,1) )
+```
+
+
+
+Representation of R2 and qvalues
+
+```{r}
+my_colors=ifelse( (NV2015$chromo_ref=="7B" & NV2015$chromo_other=="7A") | (NV2015$chromo_ref=="7A" & NV2015$chromo_other=="7B") , "red" , "blue")
+my_pch=ifelse( NV2015$chromo_ref=="7A" & NV2015$chromo_other=="7B" & NV2015$min_Kref>=115 & NV2015$max_Kref<=120 & NV2015$min_Kother>=55 & NV2015$max_Kother<=60 , 15, 20)
+plot(NV2015$R2~NV2015$qvalues, col=my_colors, pch=my_pch, xlab="qvalue", ylab="R2" )
+abline(v=0.05, col="grey")
+```
+
+It is quite clear that the only relevant QTL is the one described in the study. A few other pairs of markers presents an interaction, but always with a small R2 and are thus probably due to hazard.
+
+We can have a look to the 10 biggest R2:
+```{r}
+tmp1=head(NV2015[order(NV2015$R2, decreasing=T) , ], 10)
+tmp2=head(NV2015[order(NV2015$qvalues) , ] , 10)
+```
+
+
+```{r my_aadfda, results='asis', echo=FALSE}
+print(xtable(tmp1), type = "html", include.rownames = F , comment=FALSE)
+```
+As presented in this table, the highest R2 always involved QTL 7A or QTL 7B, or both.
+
+Let's look the 10 lowest qvalues:
+```{r my_aabjhj, results='asis', echo=FALSE}
+print(xtable(tmp2), type = "html", include.rownames = F , comment=FALSE)
+```
+[//]: =========================================================================================================================
+
+
+
+
+
+
+
+
+
+
+
+[//]: =========================================================================================================================
+
+## Elisa 2015
+Calculate qvalue from pvalues
+```{r}
+qv = qvalue(p=Elisa2015$pval_inter, fdr.level=0.05, robust=TRUE)
+Elisa2015$qvalues=qv$qvalues
+```
+
+
+transforme pvalues of markers in LOD:
+```{r}
+Elisa2015$pval_mark1=-log10(Elisa2015$pval_mark1+0.0000000000000000001)
+Elisa2015$pval_mark2=-log10(Elisa2015$pval_mark2+0.0000000000000000001)
+```
+
+
+How many significant interactions do we have?
+```{r}
+my_signif=Elisa2015[which(Elisa2015$qvalues<0.05) , ]
+nrow(my_signif)
+```
+
+Let's show the details of these significant interactions:
+```{r aasssd, results='asis', echo=FALSE}
+print(xtable(my_signif), type = "html", include.rownames = F , comment=FALSE)
+```
+All the significant interactions are related to the interactions between 7A and 7B QTL. The highest interaction is found between the 2 zones containing the QTLs IC. Other significant interaction are found for the slices surrounding the QTLs, due to linkage desequilibrium.  
+
+The same representation as above, looking for relationship between R2 and qvalue, highlighting the QTL and 7A x 7B interactions:
+
+```{r}
+my_colors=ifelse( (Elisa2015$chromo_ref=="7B" & Elisa2015$chromo_other=="7A") | (Elisa2015$chromo_ref=="7A" & Elisa2015$chromo_other=="7B") , "red" , "blue")
+my_pch=ifelse( Elisa2015$chromo_ref=="7A" & Elisa2015$chromo_other=="7B" & Elisa2015$min_Kref>=115 & Elisa2015$max_Kref<=120 & Elisa2015$min_Kother>=80 & Elisa2015$max_Kother<=85 , 15, 20)
+plot(Elisa2015$R2~Elisa2015$qvalues, col=my_colors, pch=my_pch, xlab="qvalue", ylab="R2" )
+abline(v=0.05, col="grey")
+```
+[//]: =========================================================================================================================
+
+
+
+
+
+
+
+[//]: =========================================================================================================================
+
+## QPCR 2015
+Calculate qvalue from pvalues
+```{r}
+qv = qvalue(p=qPCR2015$pval_inter, fdr.level=0.05, robust=TRUE)
+qPCR2015$qvalues=qv$qvalues
+```
+
+transforme pvalues of markers in LOD:
+```{r}
+qPCR2015$pval_mark1=-log10(qPCR2015$pval_mark1+0.0000000000000000001)
+qPCR2015$pval_mark2=-log10(qPCR2015$pval_mark2+0.0000000000000000001)
+```
+
+How many significant interactions do we have?
+```{r}
+a=qPCR2015[which(qPCR2015$qvalues<0.05) , ]
+nrow(a)
+```
+```{r mdddd, results='asis' , echo=FALSE}
+print(xtable(a ), type = "html", include.rownames = T , comment=FALSE)
+```
+
+
+Let's represent the qvalues we have:
+```{r}
+plot(sort(qPCR2015$qvalues) , ylab="q-values", ylim=c(0,1) )
+```
+
+What is the lowest q-value we have?
+```{r}
+min(qPCR2015$qvalues)
+```
+
+
+
+
+What interests us is the relationship between the q-value of interaction, and the R2 of the model. Let's represent both, and check if we find out a pair of marker with a high R2 and a high interaction term? Every pair of markers will be blue, except the interactions between chromosome 7A and chromosome 7B. I will use dots only, except for representing the interaction between the QTL 7A and the QTL 7B described in the study.
+
+```{r}
+my_colors=ifelse( (qPCR2015$chromo_ref=="7B" & qPCR2015$chromo_other=="7A") | (qPCR2015$chromo_ref=="7A" & qPCR2015$chromo_other=="7B") , "red" , "blue")
+my_pch=ifelse( qPCR2015$chromo_ref=="7A" & qPCR2015$chromo_other=="7B" & qPCR2015$min_Kref>=115 & qPCR2015$max_Kref<=120 & qPCR2015$min_Kother>=50 & qPCR2015$max_Kother<=55 , 15, 20)
+plot(qPCR2015$R2~qPCR2015$qvalues, col=my_colors, pch=my_pch, xlab="qvalue", ylab="R2" )
+```
+
+It is quite clear that the only relevant QTL is the one described in the study. A few other pairs of markers presents an interaction, but always with a small R2 and are thus probably due to hazard.
+
+We can have a look to the 10 biggest R2:
+```{r}
+tmp1=head(qPCR2015[order(qPCR2015$R2, decreasing=T) , ], 10)
+tmp2=head(qPCR2015[order(qPCR2015$qvalues) , ] , 10)
+```
+
+
+```{r my_aaqqa, results='asis', echo=FALSE}
+print(xtable(tmp1), type = "html", include.rownames = F , comment=FALSE)
+```
+As presented in this table, the highest R2 always involved QTL 7A or QTL 7B, or both.
+
+Let's look the 10 lowest qvalues:
+```{r my_aaddb, results='asis', echo=FALSE}
+print(xtable(tmp2), type = "html", include.rownames = F , comment=FALSE)
+```
+[//]: =========================================================================================================================
+
+
+
+
+
+
+
 

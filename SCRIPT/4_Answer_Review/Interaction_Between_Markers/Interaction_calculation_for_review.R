@@ -46,16 +46,19 @@ names(genotype)[1]<-"geno"
 print("--- Your genotyping matrix looks correct. Dimension of the matrix are :")
 print(dim(genotype))
 
+
 # --- Map
 # Format de la carte : 3 colonnes : LG, nom du marqueur, position dans le LG
 map <- read.table(fic_map , header=T , dec = ".", na.strings = "-" , check.names=F)
 colnames(map) <- c("LG", "marqueur", "Distance","group_physique","Posi_physique")
 rownames(map) <- map$marqueur
 map$LG <- as.factor(map$LG)
+map=map[ which(map$marqueur%in%colnames(genotype)) , ]
 print("--- Your genetic map looks correct. Dimension of the map are :")
 print(dim(map))
 # I remove the rare singlet markers that make a bug:
 map=map[-grep("singlet", map$marqueur) , ]
+
 
 
 # --- Phenotyping matrix
@@ -78,7 +81,7 @@ print(dim(BLUP))
 
 BLUP[,1]<-as.character(BLUP[,1])
 genotype[,1]<-as.character(genotype[,1])
-don<-merge(BLUP,genotype, by="geno")
+don<-merge(BLUP,genotype, by.x=1 , by.y=1, all=T)
 print("--- Nombre d'individu communs entre pheno et géno :")
 dim(don)[1]
 
@@ -95,13 +98,19 @@ dim(don)[1]
 
 
 # Create an empty summary file!
-bilan=data.frame(matrix(0,1000000,11))
-colnames(bilan)=c("pheno","chromo_ref","min_Kref","max_Kref","mark_ref","chromo_other","min_Kother","max_Kother","mark_Kother","R2","pval_inter")
+bilan=data.frame(matrix(0,1000000,13))
+colnames(bilan)=c("pheno","chromo_ref","min_Kref","max_Kref","mark_ref","chromo_other","min_Kother","max_Kother","mark_Kother","R2","pval_mark1", "pval_mark2", "pval_inter")
 
 # features of the chromosome of reference. We are going to slice it by 5cM! --> print the number of slices:
 max_map=max(map$Distance[map$LG==ref_chromo] , na.rm=T)
 print("the number of slices for this chromosome is:")
 print(max_map/5)
+
+# With which chromosome do I have to do the comparison? (only chromosome higher than the reference chromosome)
+vec_chromo=levels(map$LG)
+K_for_comparison=vec_chromo[c(match(ref_chromo , vec_chromo):length(vec_chromo))]
+print("lets calculate interaction with chromosomes:")
+print(K_for_comparison)
 
 # Let's start the slicing!
 num=0
@@ -114,7 +123,9 @@ for(min_Kref in seq(0,max_map,5)){
 	print(paste("you are on slice: ",min_Kref," ----> ",max_Kref," -- size of chromo is: ",max_map,sep=""))
 	
 	# We need to compare it with slices of all other chromosomes!
-	for(chromo in levels(map$LG)){
+	for(chromo in K_for_comparison ){
+		print("chromo en cours:")
+		print(chromo)
 		my_max=max(map$Distance[map$LG==chromo] , na.rm=T)
 
 		# Slice this new chromosome
@@ -132,11 +143,11 @@ for(min_Kref in seq(0,max_map,5)){
 			model=lm(data[,1] ~ data[,2] * data[,3])
 			sum=summary(model)
 			my_r2=round(sum$r.squared,3)
-			my_pval=ifelse( nrow(sum$coefficients)>3 , round(sum$coefficients[4,4],6) , NA)
+			my_pval=if(nrow(sum$coefficients)>3)  as.vector(round(sum$coefficients[c(2:4),4],6))  else rep(NA,3)
 			
 			# fill the summary table
 			num=num+1
-			bilan[num , c(1:11)]=c(as.character(ref_pheno), ref_chromo , min_Kref, max_Kref, as.character(marker1), chromo, min_Kother, max_Kother, as.character(marker2), my_r2, my_pval )
+			bilan[num , c(1:13)]=c(as.character(ref_pheno), ref_chromo , min_Kref, max_Kref, as.character(marker1), chromo, min_Kother, max_Kother, as.character(marker2), my_r2, my_pval )
 		
 	}}}
 bilan=bilan[bilan$chromo_ref==ref_chromo , ]
